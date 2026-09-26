@@ -11,9 +11,12 @@ router = APIRouter(prefix="/api/products", tags=["products"])
 def list_products(
     category: str | None = Query(default=None),
     q: str | None = Query(default=None),
+    # active=true (default): only active products. active=false: include inactive too.
     active: bool = Query(default=True),
 ):
-    return mongo_repo.list_products(mongo_db(), category=category, q=q, active=active)
+    return mongo_repo.list_products(
+        mongo_db(), category=category, q=q, active=True if active else None
+    )
 
 
 @router.get("/categories", response_model=list[str])

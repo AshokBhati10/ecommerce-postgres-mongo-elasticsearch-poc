@@ -11,8 +11,10 @@ def _to_out(doc: dict) -> dict:
 
 
 def list_products(db, category: str | None = None, q: str | None = None,
-                  active: bool = True) -> list[dict]:
-    filt: dict = {"active": active}
+                  active: bool | None = True) -> list[dict]:
+    filt: dict = {}
+    if active is not None:
+        filt["active"] = active
     if category:
         filt["category"] = category
     if q:

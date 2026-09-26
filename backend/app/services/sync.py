@@ -13,7 +13,7 @@ scripts/reindex_orders.py rebuilds the whole index from Postgres in one step.
 import logging
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from ..repositories import es as es_repo
 from ..repositories import postgres as pg_repo
@@ -45,8 +45,12 @@ def start_polling_worker(pool, es, index: str, interval: int,
     """Background thread: poll Postgres for changed orders and bulk-sync to ES."""
 
     def _run() -> None:
-        # Small overlap so orders committed while the app was down are not missed.
-        watermark = datetime.now(timezone.utc)
+        # Resume where ES left off (not "now"), with a small overlap: orders
+        # changed while the app was down are caught on the first poll.
+        # Re-indexing is idempotent (same _id), so the overlap is safe.
+        resume = es_repo.max_updated_at(es, index)
+        watermark = (resume - timedelta(seconds=60)) if resume else datetime(
+            1970, 1, 1, tzinfo=timezone.utc)
         logger.info("Polling sync worker started (every %ds) for index %s",
                     interval, index)
         while not stop_event.wait(interval):

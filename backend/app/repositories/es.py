@@ -1,4 +1,6 @@
 """Elasticsearch access: the `orders` index. Screen 3 reads ONLY from here."""
+from datetime import datetime
+
 from elasticsearch import Elasticsearch
 
 ORDERS_MAPPING = {
@@ -93,6 +95,18 @@ def bulk_index_orders(es: Elasticsearch, index: str, orders: list[dict]) -> None
 def get_doc(es: Elasticsearch, index: str, order_id: int) -> dict | None:
     try:
         return es.get(index=index, id=order_id)["_source"]
+    except Exception:
+        return None
+
+
+def max_updated_at(es: Elasticsearch, index: str) -> datetime | None:
+    """Newest updated_at in the index, so the polling worker resumes where ES
+    left off instead of missing orders changed while the app was down."""
+    try:
+        res = es.search(index=index, size=0,
+                        aggs={"max_updated": {"max": {"field": "updated_at"}}})
+        val = (res.get("aggregations") or {}).get("max_updated", {}).get("value_as_string")
+        return datetime.fromisoformat(val) if val else None
     except Exception:
         return None
 
