@@ -151,6 +151,8 @@ def search_orders(
         filters.append({"range": {"total_amount": rng}})
 
     body: dict = {
+        # accurate totals even past ES's default 10k hit-count cap
+        "track_total_hits": True,
         "query": {"bool": {"must": must or [{"match_all": {}}], "filter": filters}},
         "aggs": {
             "total_revenue": {"sum": {"field": "total_amount"}},

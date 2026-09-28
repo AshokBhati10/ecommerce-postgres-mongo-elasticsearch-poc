@@ -1,6 +1,7 @@
-"""Reproducible seed: Postgres users/orders/items, MongoDB catalog (~500 products
-with images, + inactive products + the Wireless Mouse -> Wireless Mouse Pro
-rename fixture), and a fully caught-up Elasticsearch orders index.
+"""Reproducible seed: Postgres users/orders/items (~50k orders), MongoDB catalog
+(5,000 products with images, + inactive products + the Wireless Mouse ->
+Wireless Mouse Pro rename fixture), and a fully caught-up Elasticsearch
+orders index.
 
 Run from backend/:  python -m scripts.seed
 """
@@ -244,9 +245,9 @@ INACTIVE_PRODUCT = (
 
 # ---------- Generated large catalog ----------
 # Deterministic generator that grows the hand-written CATALOG above to a
-# genuinely large catalog (~500 products) across the same four categories.
+# genuinely large catalog (5,000 products) across the same four categories.
 # Uses its own Random instance so order seeding (random.seed(42)) is untouched.
-CATALOG_TARGET_TOTAL = 500
+CATALOG_TARGET_TOTAL = 5000
 
 _GEN_BRANDS = ["NorthPeak", "VoltEdge", "ClearLine", "DeskForge",
                "SonicLab", "PixelPro", "AeroDesk", "BrightPath"]
@@ -258,7 +259,7 @@ _GEN_MODELS = ["S100", "S200", "S300", "X1", "X2", "X5", "MK-II", "MK-III",
 
 _GEN_CATEGORY_SPECS = {
     "peripherals": {
-        "count": 120, "sku_prefix": "PH", "price": (14.99, 249.99),
+        "count": 1250, "sku_prefix": "PH", "price": (14.99, 249.99),
         "cores": ["Mouse", "Keyboard", "Monitor", "Webcam", "Docking Station",
                   "Trackpad", "Headset Stand", "USB Hub", "KVM Switch",
                   "Graphics Tablet", "Monitor Arm", "Laptop Riser", "Wrist Rest",
@@ -274,7 +275,7 @@ _GEN_CATEGORY_SPECS = {
                    "{brand}'s {desc_l} {core_l} — reliable performance, modern styling."],
     },
     "audio": {
-        "count": 118, "sku_prefix": "AD", "price": (11.99, 349.99),
+        "count": 1240, "sku_prefix": "AD", "price": (11.99, 349.99),
         "cores": ["Earbuds", "Headphones", "Bluetooth Speaker", "Soundbar",
                   "USB Microphone", "Earphones", "Studio Monitor", "Audio Interface",
                   "Headphone Stand", "Conference Speaker", "Portable Radio",
@@ -289,7 +290,7 @@ _GEN_CATEGORY_SPECS = {
                    "{brand}'s {desc_l} {core_l} — deep bass, clear highs."],
     },
     "cables": {
-        "count": 118, "sku_prefix": "CB", "price": (4.99, 79.99),
+        "count": 1242, "sku_prefix": "CB", "price": (4.99, 79.99),
         "cores": ["USB-C Cable", "HDMI Cable", "Ethernet Cable", "DisplayPort Cable",
                   "Wireless Charger", "GaN Charger", "Cable Organizer", "Extension Cord",
                   "Adapter Kit", "Braided Cable", "Power Strip", "Lightning Cable",
@@ -304,7 +305,7 @@ _GEN_CATEGORY_SPECS = {
                    "{brand}'s {desc_l} {core_l}, tested for thousands of bends."],
     },
     "office": {
-        "count": 118, "sku_prefix": "OF", "price": (9.99, 199.99),
+        "count": 1242, "sku_prefix": "OF", "price": (9.99, 199.99),
         "cores": ["Desk Lamp", "Monitor Light", "Desk Organizer", "Footrest",
                   "Cable Tray", "Desk Shelf", "Chair Mat", "Whiteboard",
                   "Desk Clock", "Pen Holder", "File Tray", "Monitor Riser",
@@ -363,7 +364,8 @@ def _generate_catalog_products():
                 "image_url": _image_url_for(title, cat),
                 "stock": sum(v["stock"] for v in variants),
                 # sprinkle a few inactive products in deterministically
-                "active": rng.random() >= 0.015,
+                # (~2.8% -> ~140 inactive of 5,000, i.e. ~4,860 active)
+                "active": rng.random() >= 0.028,
                 "updated_at": NOW,
             })
     return docs
@@ -517,6 +519,114 @@ def seed_orders(pool, mdb, specs):
     return order_ids
 
 
+# ---------- Bulk order generation (~50k orders) ----------
+# The 42 hand-crafted specs above are the assignment's demo dataset and stay
+# byte-identical. These deterministic bulk specs are APPENDED after them so
+# order ids 1..42 (and every fixture built on them) never move.
+ORDER_TARGET_TOTAL = 50000
+
+_BULK_ITEM_COUNT_WEIGHTS = [0.12, 0.24, 0.26, 0.16, 0.10, 0.06, 0.04, 0.02]  # 1..8 items
+_BULK_QTY_WEIGHTS = [0.60, 0.30, 0.10]  # qty 1..3
+
+
+def _status_for_age(rng, days_ago):
+    """Realistic status mix: old orders have shipped, recent ones are moving."""
+    r = rng.random()
+    if days_ago > 90:
+        return "SHIPPED"
+    if days_ago >= 30:
+        return "SHIPPED" if r < 0.70 else "PROCESSING"
+    if r < 0.40:
+        return "PENDING"
+    return "PROCESSING" if r < 0.80 else "SHIPPED"
+
+
+def build_bulk_order_specs(by_title, n):
+    """Deterministic bulk order specs: {user_id, picks:[(title, qty)],
+    days_ago, status}. Own Random instance; the global random.seed(42)
+    sequence used by build_order_specs/seed_orders is untouched."""
+    rng = random.Random(20260928 + 7)
+    titles = sorted(by_title)
+    # popularity skew: a shuffled ranking where early titles sell far more,
+    # so products are reused naturally across many orders
+    ranking = titles[:]
+    rng.shuffle(ranking)
+    weights = [1.0 / (i + 1) ** 0.85 for i in range(len(ranking))]
+    counts = [1, 2, 3, 4, 5, 6, 7, 8]
+    qtys = [1, 2, 3]
+    specs = []
+    for _ in range(n):
+        n_items = rng.choices(counts, weights=_BULK_ITEM_COUNT_WEIGHTS)[0]
+        picks: dict[str, int] = {}
+        for title in rng.choices(ranking, weights=weights, k=n_items):
+            q = rng.choices(qtys, weights=_BULK_QTY_WEIGHTS)[0]
+            picks[title] = picks.get(title, 0) + q
+        # recency-skewed: mean ~120 days, capped at 2 years so date-range
+        # filtering stays meaningful
+        days_ago = min(int(rng.expovariate(1 / 120)), 729)
+        specs.append({
+            "user_id": rng.randint(1, 8),
+            "picks": list(picks.items()),
+            "days_ago": days_ago,
+            "status": _status_for_age(rng, days_ago),
+        })
+    return specs
+
+
+def seed_bulk_orders(pool, by_title, specs):
+    """Insert the bulk specs with multi-row INSERTs (a few dozen statements
+    for ~50k orders + ~165k items) instead of one transaction per order.
+    Snapshots (title/unit_price) are copied from the catalog exactly like
+    create_order does. Returns the inserted order ids in insert order."""
+    brng = random.Random(20260928 + 11)
+    order_rows = []       # (user_id, order_date, status, total_amount)
+    per_order_lines = []  # [(product_id, title, qty, unit_price)]
+    for spec in specs:
+        lines = []
+        total = 0.0
+        for title, qty in spec["picks"]:
+            p = by_title[title]
+            unit = float(p["price"])
+            lines.append((str(p["_id"]), p["title"], qty, unit))
+            total += qty * unit
+        order_date = NOW - timedelta(days=spec["days_ago"],
+                                     hours=brng.randint(0, 23),
+                                     minutes=brng.randint(0, 59))
+        order_rows.append((spec["user_id"], order_date, spec["status"], round(total, 2)))
+        per_order_lines.append(lines)
+
+    with pool.connection() as conn, conn.cursor() as cur:
+        with conn.transaction():
+            order_ids = []
+            for i in range(0, len(order_rows), 2000):
+                chunk = order_rows[i:i + 2000]
+                placeholders = ",".join(["(%s,%s,%s,%s)"] * len(chunk))
+                cur.execute(
+                    "INSERT INTO orders (user_id, order_date, status, total_amount) "
+                    f"VALUES {placeholders} RETURNING id",
+                    [v for row in chunk for v in row],
+                )
+                ids = [r["id"] for r in cur.fetchall()]
+                assert len(ids) == len(chunk), "bulk order insert lost rows"
+                assert ids == sorted(ids), "bulk order ids not sequential"
+                order_ids.extend(ids)
+            item_rows = []
+            for oid, lines in zip(order_ids, per_order_lines):
+                for product_id, title, qty, unit in lines:
+                    item_rows.append((oid, product_id, title, qty, unit))
+            for i in range(0, len(item_rows), 5000):
+                chunk = item_rows[i:i + 5000]
+                placeholders = ",".join(["(%s,%s,%s,%s,%s)"] * len(chunk))
+                cur.execute(
+                    "INSERT INTO order_items "
+                    "(order_id, product_id, title, quantity, unit_price) "
+                    f"VALUES {placeholders}",
+                    [v for row in chunk for v in row],
+                )
+    print(f"Postgres: {len(order_ids)} bulk orders, {len(item_rows)} order_items seeded")
+    return order_ids
+
+
 def rename_fixture(mdb):
     """Deliberate snapshot mismatch: catalog moves on, history does not."""
     mdb.products.update_one(
@@ -533,15 +643,35 @@ def verify(pool, mdb, es, index):
         if not cond:
             errs.append(msg)
 
+    # --- PostgreSQL users ---
     users = pg_repo.list_users(pool)
     check(len(users) == 8, f"users: expected 8, got {len(users)}")
-    active = mdb.products.count_documents({"active": True})
-    check(active >= 24, f"active products: expected >=24, got {active}")
-    check(mdb.products.count_documents({"active": False}) >= 1, "missing inactive product")
+
+    # --- MongoDB catalog ---
+    total_products = mdb.products.count_documents({})
+    n_active = mdb.products.count_documents({"active": True})
+    n_inactive = total_products - n_active
+    check(total_products == 5000, f"products: expected 5000, got {total_products}")
+    check(4800 <= n_active <= 4900,
+          f"active products: expected 4800-4900, got {n_active}")
+    check(n_inactive >= 100,
+          f"inactive products: expected >=100, got {n_inactive}")
     wireless = mdb.products.count_documents(
         {"active": True, "$or": [{"title": {"$regex": "wireless", "$options": "i"}},
                                  {"tags": "wireless"}]})
     check(wireless >= 6, f"wireless products: expected >=6, got {wireless}")
+    for title in ("Wireless Mouse Pro", "Mechanical Keyboard", "Wireless Earbuds",
+                  "USB-C Hub 7-in-1", "Desk Lamp LED", "Noise Cancelling Headphones"):
+        check(mdb.products.count_documents({"title": title, "active": True}) >= 1,
+              f"required product missing: {title}")
+    sample = mdb.products.find_one({"active": True})
+    check({"sku", "title", "description", "price", "category", "tags",
+           "attributes", "variants", "active", "updated_at"} <= set(sample),
+          "product document structure changed")
+    cat_counts = {c: mdb.products.count_documents({"category": c})
+                  for c in ("peripherals", "audio", "cables", "office")}
+    check(all(v >= 1000 for v in cat_counts.values()),
+          f"category counts: {cat_counts}")
 
     with pool.connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) n FROM orders")
@@ -552,6 +682,12 @@ def verify(pool, mdb, es, index):
         statuses = {r["status"]: r["n"] for r in cur.fetchall()}
         cur.execute("SELECT user_id, COUNT(*) n FROM orders GROUP BY user_id")
         per_user = {r["user_id"]: r["n"] for r in cur.fetchall()}
+        cur.execute("SELECT MIN(order_date) AS lo, MAX(order_date) AS hi FROM orders")
+        date_range = cur.fetchone()
+        cur.execute("SELECT MIN(total_amount) AS mn, MAX(total_amount) AS mx, "
+                    "AVG(total_amount) AS av FROM orders")
+        totals = cur.fetchone()
+        # --- the original 42-order assignment fixtures (still intact) ---
         cur.execute("SELECT COUNT(*) n FROM orders WHERE order_date < %s",
                     (NOW - timedelta(days=60),))
         old = cur.fetchone()["n"]
@@ -578,13 +714,23 @@ def verify(pool, mdb, es, index):
                        WHERE o.user_id = 3 AND i.title ILIKE '%wireless%'""")
         wendy_wireless = cur.fetchone()["n"]
 
-    check(n_orders >= 40, f"orders: expected >=40, got {n_orders}")
-    check(n_items >= 80, f"order_items: expected >=80, got {n_items}")
-    check(n_items / max(n_orders, 1) >= 2, "avg items/order < 2")
+    check(n_orders == ORDER_TARGET_TOTAL,
+          f"orders: expected {ORDER_TARGET_TOTAL}, got {n_orders}")
+    check(150000 <= n_items <= 200000,
+          f"order_items: expected 150k-200k, got {n_items}")
+    avg_items = n_items / max(n_orders, 1)
+    check(2.5 <= avg_items <= 4.5, f"avg items/order: {avg_items:.2f}")
     for s in ("PENDING", "PROCESSING", "SHIPPED"):
-        check(statuses.get(s, 0) >= 10, f"status {s}: expected >=10, got {statuses.get(s, 0)}")
-    check(all(v >= 2 for v in per_user.values()) and len(per_user) == 8,
+        check(statuses.get(s, 0) >= 1000,
+              f"status {s}: expected >=1000, got {statuses.get(s, 0)}")
+    check(len(per_user) == 8 and all(v >= 1000 for v in per_user.values()),
           f"per-user orders: {per_user}")
+    check(date_range["lo"] < NOW - timedelta(days=700),
+          f"date range too narrow (oldest: {date_range['lo']})")
+    check(date_range["hi"] > NOW - timedelta(days=1),
+          f"no recent orders (newest: {date_range['hi']})")
+    check(totals["mn"] > 0 and totals["mx"] > totals["mn"] and totals["av"] > 0,
+          f"order totals look wrong: {dict(totals)}")
     check(old >= 5, f"orders older than 60d: expected >=5, got {old}")
     check(recent >= 5, f"orders in last 7d: expected >=5, got {recent}")
     check(cheap >= 5 and mid >= 5 and premium >= 5,
@@ -606,8 +752,16 @@ def verify(pool, mdb, es, index):
         for e in errs:
             print(" -", e)
         sys.exit(1)
-    print(f"Verify OK: {n_orders} orders, {n_items} items, ES docs={es_count}, "
-          f"statuses={statuses}, bands(<30/30-150/>200)={cheap}/{mid}/{premium}")
+    print(f"Postgres: {len(users)} users, {n_orders} orders, {n_items} order_items "
+          f"(avg {avg_items:.2f}/order)")
+    print(f"  statuses={statuses}")
+    print(f"  date range: {date_range['lo']} .. {date_range['hi']}")
+    print(f"  totals: min={totals['mn']} max={totals['mx']} "
+          f"avg={round(float(totals['av']), 2)}")
+    print(f"MongoDB: {total_products} products "
+          f"({n_active} active, {n_inactive} inactive), categories={cat_counts}")
+    print(f"Elasticsearch: index '{index}' has {es_count} docs "
+          f"(== Postgres orders)")
 
 
 def main():
@@ -615,8 +769,10 @@ def main():
     seed_postgres_schema(pool)
     seed_mongo(mdb)
     by_title = {d["title"]: d for d in mdb.products.find({"active": True})}
-    specs = build_order_specs(by_title)
+    specs = build_order_specs(by_title)          # the 42 hand-crafted orders
     seed_orders(pool, mdb, specs)
+    bulk_specs = build_bulk_order_specs(by_title, ORDER_TARGET_TOTAL - len(specs))
+    seed_bulk_orders(pool, by_title, bulk_specs)
     rename_fixture(mdb)
     n = sync_service.reindex_all(pool, es, settings.es_index)
     print(f"Elasticsearch: index '{settings.es_index}' rebuilt with {n} docs")

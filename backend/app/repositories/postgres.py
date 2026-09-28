@@ -121,3 +121,50 @@ def count_orders(pool: ConnectionPool) -> int:
     with pool.connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) AS n FROM orders")
         return cur.fetchone()["n"]
+
+
+def iter_orders_with_items(pool: ConnectionPool, since: datetime,
+                           batch_size: int = 2000):
+    """Yield orders (each with items + customer) in batches, oldest first.
+
+    Batched read path for full reindexes: one item query per batch instead of
+    one per order. get_changed_orders stays as-is for the small deltas the
+    polling worker handles.
+    """
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS n FROM orders WHERE updated_at > %s",
+                    (since,))
+        total = cur.fetchone()["n"]
+        for offset in range(0, total, batch_size):
+            cur.execute(
+                """
+                SELECT o.id, o.user_id, o.order_date, o.status, o.total_amount,
+                       o.updated_at,
+                       u.name AS customer_name, u.email AS customer_email
+                FROM orders o JOIN users u ON u.id = o.user_id
+                WHERE o.updated_at > %s
+                ORDER BY o.updated_at, o.id
+                LIMIT %s OFFSET %s
+                """,
+                (since, batch_size, offset),
+            )
+            orders = cur.fetchall()
+            if not orders:
+                break
+            cur.execute(
+                """
+                SELECT order_id, product_id, title, quantity, unit_price
+                FROM order_items
+                WHERE order_id = ANY(%s)
+                ORDER BY order_id, id
+                """,
+                ([o["id"] for o in orders],),
+            )
+            by_order: dict[int, list] = {}
+            for it in cur.fetchall():
+                by_order.setdefault(it["order_id"], []).append(
+                    {k: it[k] for k in
+                     ("product_id", "title", "quantity", "unit_price")})
+            for order in orders:
+                order["items"] = by_order.get(order["id"], [])
+            yield orders

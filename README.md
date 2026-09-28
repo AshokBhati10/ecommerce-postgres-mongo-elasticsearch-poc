@@ -29,7 +29,7 @@ docker compose up -d
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python -m scripts.seed        # schema + 8 users + 500 products + 42 orders + ES index
+python -m scripts.seed        # schema + 8 users + 5,000 products + 50,000 orders + ES index
 uvicorn app.main:app --reload
 
 # frontend (new shell)
@@ -48,7 +48,7 @@ then run the same backend/frontend steps above.
 `python -m scripts.seed` wipes and rebuilds everything deterministically:
 
 - 8 users (incl. `John Doe`, `Wendy Wireless`)
-- 500 products (487 active, 13 inactive) across `peripherals`, `audio`,
+- 5,000 products (4,885 active, 115 inactive) across `peripherals`, `audio`,
   `cables`, `office`, with nested attributes, variants, tags, stock levels,
   and an `image_url` per product (deterministic, product-relevant photo URLs —
   curated Unsplash/Pexels images matched to the product type, e.g. mice get a
@@ -57,7 +57,12 @@ then run the same backend/frontend steps above.
   rename fixture) are kept intact; the rest are generated deterministically
   (`random.Random(20260928)`), so every seed produces the identical catalog.
   To rebuild: `python -m scripts.seed` (wipes and recreates everything).
-- 42 orders / 96 items, statuses balanced 14/14/14 (PENDING/PROCESSING/SHIPPED)
+- 50,000 orders / ~164k order_items (avg ~3.3 items/order), spread over two
+  years with a realistic status mix (mostly SHIPPED for old orders,
+  PENDING/PROCESSING for recent ones). The original 42 hand-crafted orders —
+  price bands (<$30 / $30–$150 / >$200), the `Wireless Mouse` / `Mechanical
+  Keyboard` / Wendy Wireless fixtures, and the 14/14/14 status balance — are
+  seeded first and unchanged, so every assignment fixture still holds.
 - deliberate fixture: order history keeps the snapshot `Wireless Mouse`
   ($50.16) while the live catalog sells `Wireless Mouse Pro` ($59.99) —
   this proves checkout snapshots instead of referencing live catalog data

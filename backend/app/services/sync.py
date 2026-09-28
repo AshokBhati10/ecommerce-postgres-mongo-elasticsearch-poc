@@ -22,13 +22,20 @@ logger = logging.getLogger(__name__)
 
 
 def reindex_all(pool, es, index: str) -> int:
-    """Drop + recreate the index and bulk-load every Postgres order."""
+    """Drop + recreate the index and bulk-load every Postgres order.
+
+    Reads and indexes in batches so a 50k-order reindex is ~50 statements
+    and ~100 bulk HTTP requests instead of 50k per-order item queries and
+    50k individual index requests.
+    """
     es_repo.recreate_index(es, index)
     epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
-    orders = pg_repo.get_changed_orders(pool, epoch)
-    es_repo.bulk_index_orders(es, index, orders)
-    logger.info("Reindexed %d orders into %s", len(orders), index)
-    return len(orders)
+    total = 0
+    for batch in pg_repo.iter_orders_with_items(pool, epoch):
+        es_repo.bulk_index_orders(es, index, batch)
+        total += len(batch)
+    logger.info("Reindexed %d orders into %s", total, index)
+    return total
 
 
 def sync_changed_since(pool, es, index: str, since: datetime) -> tuple[int, datetime]:
