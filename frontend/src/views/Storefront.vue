@@ -15,7 +15,7 @@
         </div>
         <div class="field">
           <label>Category</label>
-          <select class="select" v-model="category" @change="loadProducts">
+          <select class="select" v-model="category" @change="onCategoryChange">
             <option value="">All categories</option>
             <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
           </select>
@@ -33,30 +33,52 @@
     <div v-if="loading" class="loading">Loading products…</div>
     <div v-else-if="error" class="alert alert-error">{{ error }}</div>
     <div v-else-if="products.length === 0" class="empty card">No products found.</div>
-    <div v-else class="grid">
-      <div v-for="p in products" :key="p.id" class="card product-card">
-        <h3>{{ p.title }}</h3>
-        <div class="desc">{{ shortDesc(p.description) }}</div>
-        <div class="attr-line" v-if="p.attributes && p.attributes.brand">
-          <b>Brand:</b> {{ p.attributes.brand }}
+    <div v-else>
+      <div class="result-meta">Showing {{ products.length }} of {{ total }} products</div>
+      <div class="grid">
+        <div v-for="p in products" :key="p.id" class="card product-card">
+          <img class="product-img" :src="p.image_url || FALLBACK_IMG" :alt="p.title"
+               loading="lazy" @error="onImgError" />
+          <h3>{{ p.title }}</h3>
+          <div class="desc">{{ shortDesc(p.description) }}</div>
+          <div class="attr-line"><b>Category:</b> {{ p.category }}</div>
+          <div class="attr-line" v-if="p.attributes && p.attributes.brand">
+            <b>Brand:</b> {{ p.attributes.brand }}
+          </div>
+          <div class="attr-line" v-if="p.attributes && p.attributes.color">
+            <b>Color:</b> {{ p.attributes.color }}
+          </div>
+          <div class="attr-line" v-if="p.tags && p.tags.length">
+            <b>Tags:</b> {{ p.tags.join(', ') }}
+          </div>
+          <div class="price">{{ formatPrice(p.price) }}</div>
+          <button class="btn btn-primary" @click="addToCart(p)">Add to Cart</button>
         </div>
-        <div class="attr-line" v-if="p.attributes && p.attributes.color">
-          <b>Color:</b> {{ p.attributes.color }}
-        </div>
-        <div class="attr-line" v-if="p.tags && p.tags.length">
-          <b>Tags:</b> {{ p.tags.join(', ') }}
-        </div>
-        <div class="price">{{ formatPrice(p.price) }}</div>
-        <button class="btn btn-primary" @click="addToCart(p)">Add to Cart</button>
+      </div>
+      <div v-if="totalPages > 1" class="pagination">
+        <button class="btn btn-sm" :disabled="page <= 1 || pageLoading" @click="goToPage(page - 1)">
+          ‹ Previous
+        </button>
+        <button v-for="n in pageNumbers" :key="n" class="btn btn-sm"
+                :class="{ 'btn-primary': n === page }" :disabled="n === page || pageLoading"
+                @click="goToPage(n)">
+          {{ n }}
+        </button>
+        <button class="btn btn-sm" :disabled="page >= totalPages || pageLoading" @click="goToPage(page + 1)">
+          Next ›
+        </button>
+        <span class="page-info">Page {{ page }} of {{ totalPages }}</span>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { api } from '../api/client.js'
 import { store, setUser, addToCart, formatPrice } from '../store.js'
+
+const PAGE_SIZE = 20
 
 const users = ref([])
 const categories = ref([])
@@ -65,7 +87,38 @@ const category = ref('')
 const q = ref('')
 const loading = ref(false)
 const error = ref('')
+const page = ref(1)
+const total = ref(0)
+const totalPages = ref(0)
 let searchTimer = null
+
+// Inline SVG placeholder shown when a product image is missing or fails to load.
+const FALLBACK_IMG =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400">` +
+      `<rect width="100%" height="100%" fill="#e5e7eb"/>` +
+      `<text x="50%" y="50%" font-family="sans-serif" font-size="26" fill="#9ca3af" ` +
+      `text-anchor="middle" dy=".3em">No image</text></svg>`
+  )
+
+function onImgError(e) {
+  const img = e.target
+  if (img.src !== FALLBACK_IMG) img.src = FALLBACK_IMG
+}
+
+// Windowed page numbers (current ± 2) for the pagination controls.
+const pageNumbers = computed(() => {
+  const totalP = totalPages.value
+  const cur = page.value
+  const start = Math.max(1, Math.min(cur - 2, totalP - 4))
+  const end = Math.min(totalP, start + 4)
+  const nums = []
+  for (let n = start; n <= end; n++) nums.push(n)
+  return nums
+})
+
+const pageLoading = computed(() => loading.value)
 
 function onUserChange(e) {
   const id = e.target.value
@@ -82,7 +135,29 @@ async function loadProducts() {
   loading.value = true
   error.value = ''
   try {
-    products.value = await api.listProducts({ category: category.value, q: q.value })
+    const res = await api.listProducts({
+      category: category.value,
+      q: q.value,
+      page: page.value,
+      page_size: PAGE_SIZE,
+    })
+    // Backend returns a paginated envelope when `page` is given.
+    if (res && Array.isArray(res.items)) {
+      products.value = res.items
+      total.value = res.total
+      totalPages.value = res.total_pages
+      // Clamp if the filter shrank beneath the current page.
+      if (page.value > res.total_pages && res.total_pages > 0) {
+        page.value = res.total_pages
+        await loadProducts()
+        return
+      }
+    } else {
+      // Fallback for a plain-list response (older backend).
+      products.value = res
+      total.value = res.length
+      totalPages.value = 1
+    }
   } catch (e) {
     error.value = 'Could not load products: ' + e.message
   } finally {
@@ -90,9 +165,23 @@ async function loadProducts() {
   }
 }
 
+function goToPage(n) {
+  if (n < 1 || n > totalPages.value || n === page.value || loading.value) return
+  page.value = n
+  loadProducts()
+}
+
+function onCategoryChange() {
+  page.value = 1
+  loadProducts()
+}
+
 function onSearchInput() {
   clearTimeout(searchTimer)
-  searchTimer = setTimeout(loadProducts, 350)
+  searchTimer = setTimeout(() => {
+    page.value = 1
+    loadProducts()
+  }, 350)
 }
 
 onMounted(async () => {

@@ -1,6 +1,6 @@
-"""Reproducible seed: Postgres users/orders/items, MongoDB catalog (+ inactive
-product + the Wireless Mouse -> Wireless Mouse Pro rename fixture), and a
-fully caught-up Elasticsearch orders index.
+"""Reproducible seed: Postgres users/orders/items, MongoDB catalog (~500 products
+with images, + inactive products + the Wireless Mouse -> Wireless Mouse Pro
+rename fixture), and a fully caught-up Elasticsearch orders index.
 
 Run from backend/:  python -m scripts.seed
 """
@@ -120,6 +120,132 @@ INACTIVE_PRODUCT = (
     [{"sku": "CR-900-BGE", "color": "beige", "stock": 0}],
 )
 
+# ---------- Generated large catalog ----------
+# Deterministic generator that grows the hand-written CATALOG above to a
+# genuinely large catalog (~500 products) across the same four categories.
+# Uses its own Random instance so order seeding (random.seed(42)) is untouched.
+CATALOG_TARGET_TOTAL = 500
+
+_GEN_BRANDS = ["NorthPeak", "VoltEdge", "ClearLine", "DeskForge",
+               "SonicLab", "PixelPro", "AeroDesk", "BrightPath"]
+_GEN_COLORS = ["black", "white", "gray", "silver", "blue", "red", "green", "navy"]
+_GEN_DESCRIPTORS = ["Ergo", "Pro", "Ultra", "Lite", "Max", "Silent",
+                    "Studio", "Elite", "Compact", "Flex", "Aero", "Prime"]
+_GEN_MODELS = ["S100", "S200", "S300", "X1", "X2", "X5", "MK-II", "MK-III",
+               "Pro 5", "Pro 7", "Air", "Go", "Plus", "Mini"]
+
+_GEN_CATEGORY_SPECS = {
+    "peripherals": {
+        "count": 120, "sku_prefix": "PH", "price": (14.99, 249.99),
+        "cores": ["Mouse", "Keyboard", "Monitor", "Webcam", "Docking Station",
+                  "Trackpad", "Headset Stand", "USB Hub", "KVM Switch",
+                  "Graphics Tablet", "Monitor Arm", "Laptop Riser", "Wrist Rest",
+                  "Desk Mat", "Microphone Arm", "Privacy Filter"],
+        "descriptors": _GEN_DESCRIPTORS + ["Wireless", "RGB", "Gaming"],
+        "tags": ["wireless", "usb", "office", "gaming", "ergonomic", "rgb",
+                 "laptop", "desk", "bluetooth", "4k", "video", "aluminum"],
+        "attrs": lambda r: {"connectivity": r.choice(
+            ["wired USB", "2.4GHz wireless", "Bluetooth 5.2", "USB-C"]),
+            "warranty_years": r.choice([1, 2, 3])},
+        "blurbs": ["{brand} {core} with {desc} design for a cleaner desk setup.",
+                   "This {desc_l} {core_l} is built for daily work and play.",
+                   "{brand}'s {desc_l} {core_l} — reliable performance, modern styling."],
+    },
+    "audio": {
+        "count": 118, "sku_prefix": "AD", "price": (11.99, 349.99),
+        "cores": ["Earbuds", "Headphones", "Bluetooth Speaker", "Soundbar",
+                  "USB Microphone", "Earphones", "Studio Monitor", "Audio Interface",
+                  "Headphone Stand", "Conference Speaker", "Portable Radio",
+                  "Karaoke Mic", "Sound Mixer", "Turntable"],
+        "descriptors": _GEN_DESCRIPTORS + ["Wireless", "Bass+", "Hi-Fi"],
+        "tags": ["wireless", "bluetooth", "audio", "anc", "premium", "bass",
+                 "studio", "podcast", "portable", "waterproof", "hi-fi"],
+        "attrs": lambda r: {"battery_hours": r.randint(4, 40),
+                            "bluetooth": r.choice(["5.2", "5.3", "5.4"])},
+        "blurbs": ["{brand} {core} with {desc} tuning for rich, detailed sound.",
+                   "This {desc_l} {core_l} handles music, calls, and everything between.",
+                   "{brand}'s {desc_l} {core_l} — deep bass, clear highs."],
+    },
+    "cables": {
+        "count": 118, "sku_prefix": "CB", "price": (4.99, 79.99),
+        "cores": ["USB-C Cable", "HDMI Cable", "Ethernet Cable", "DisplayPort Cable",
+                  "Wireless Charger", "GaN Charger", "Cable Organizer", "Extension Cord",
+                  "Adapter Kit", "Braided Cable", "Power Strip", "Lightning Cable",
+                  "Optical Cable", "USB-C Adapter"],
+        "descriptors": _GEN_DESCRIPTORS + ["Fast-Charge", "Braided"],
+        "tags": ["usb-c", "cable", "charging", "hdmi", "network", "video",
+                 "adapter", "fast-charge", "braided", "laptop", "power"],
+        "attrs": lambda r: {"length": r.choice(["0.5m", "1m", "2m", "3m", "5m"]),
+                            "certified": r.choice([True, True, False])},
+        "blurbs": ["{brand} {core} with {desc} build for dependable everyday use.",
+                   "This {desc_l} {core_l} keeps power and data tidy where you need it.",
+                   "{brand}'s {desc_l} {core_l}, tested for thousands of bends."],
+    },
+    "office": {
+        "count": 118, "sku_prefix": "OF", "price": (9.99, 199.99),
+        "cores": ["Desk Lamp", "Monitor Light", "Desk Organizer", "Footrest",
+                  "Cable Tray", "Desk Shelf", "Chair Mat", "Whiteboard",
+                  "Desk Clock", "Pen Holder", "File Tray", "Monitor Riser",
+                  "Desk Drawer", "Privacy Screen", "Ergonomic Cushion", "Bookends"],
+        "descriptors": _GEN_DESCRIPTORS + ["LED", "Bamboo"],
+        "tags": ["office", "desk", "ergonomic", "lamp", "organizer", "monitor",
+                 "led", "bamboo", "wireless", "light", "storage"],
+        "attrs": lambda r: {"material": r.choice(
+            ["bamboo", "aluminum", "fabric", "steel", "plastic"])},
+        "blurbs": ["{brand} {core} with {desc} styling for a calmer workspace.",
+                   "This {desc_l} {core_l} keeps your desk tidy and comfortable.",
+                   "{brand}'s {desc_l} {core_l} — small upgrade, big difference."],
+    },
+}
+
+
+def _generate_catalog_products():
+    """Deterministic extra products (no meaningless duplicates)."""
+    rng = random.Random(20260928)
+    used_titles = {t for _, t, *_ in CATALOG} | {INACTIVE_PRODUCT[1]}
+    used_skus = {s for s, *_ in CATALOG} | {INACTIVE_PRODUCT[0]}
+    docs = []
+    for cat, spec in _GEN_CATEGORY_SPECS.items():
+        for i in range(spec["count"]):
+            sku = f"{spec['sku_prefix']}-{1000 + i}"
+            assert sku not in used_skus, f"duplicate sku {sku}"
+            used_skus.add(sku)
+            core = rng.choice(spec["cores"])
+            desc = rng.choice(spec["descriptors"])
+            model = rng.choice(_GEN_MODELS)
+            title = f"{desc} {core} {model}"
+            suffix = 2
+            while title in used_titles:
+                title = f"{desc} {core} {model} Mk{suffix}"
+                suffix += 1
+            used_titles.add(title)
+            color = rng.choice(_GEN_COLORS)
+            brand = rng.choice(_GEN_BRANDS)
+            variants = []
+            for _ in range(rng.choice([1, 1, 2, 2, 3])):
+                vcolor = rng.choice(_GEN_COLORS)
+                variants.append({"sku": f"{sku}-{vcolor[:3].upper()}",
+                                 "color": vcolor,
+                                 "stock": rng.randint(0, 120)})
+            tags = sorted(rng.sample(spec["tags"], k=rng.randint(2, 4)))
+            attrs = {"brand": brand, "color": color}
+            attrs.update(spec["attrs"](rng))
+            blurb = rng.choice(spec["blurbs"])
+            docs.append({
+                "sku": sku, "title": title,
+                "description": blurb.format(brand=brand, core=core, desc=desc,
+                                           core_l=core.lower(), desc_l=desc.lower()),
+                "price": round(rng.uniform(*spec["price"]), 2),
+                "category": cat, "tags": tags, "attributes": attrs,
+                "variants": variants,
+                "image_url": f"https://picsum.photos/seed/{sku}/600/400",
+                "stock": sum(v["stock"] for v in variants),
+                # sprinkle a few inactive products in deterministically
+                "active": rng.random() >= 0.015,
+                "updated_at": NOW,
+            })
+    return docs
+
 STATUSES = ["PENDING", "PROCESSING", "SHIPPED"]
 
 
@@ -145,16 +271,24 @@ def seed_mongo(mdb):
         docs.append({
             "sku": sku, "title": title, "description": desc, "price": price,
             "category": cat, "tags": tags, "attributes": attrs, "variants": variants,
+            "image_url": f"https://picsum.photos/seed/{sku}/600/400",
+            "stock": sum(v.get("stock", 0) for v in variants),
             "active": True, "updated_at": NOW,
         })
     sku, title, desc, price, cat, tags, attrs, variants = INACTIVE_PRODUCT
     docs.append({
         "sku": sku, "title": title, "description": desc, "price": price,
         "category": cat, "tags": tags, "attributes": attrs, "variants": variants,
+        "image_url": f"https://picsum.photos/seed/{sku}/600/400",
+        "stock": sum(v.get("stock", 0) for v in variants),
         "active": False, "updated_at": NOW,
     })
+    docs.extend(_generate_catalog_products())
+    assert len(docs) == CATALOG_TARGET_TOTAL, \
+        f"catalog size {len(docs)} != target {CATALOG_TARGET_TOTAL}"
     mdb.products.insert_many(docs)
-    print(f"MongoDB: {len(docs)} products ({len(docs) - 1} active, 1 inactive)")
+    n_active = sum(1 for d in docs if d["active"])
+    print(f"MongoDB: {len(docs)} products ({n_active} active, {len(docs) - n_active} inactive)")
 
 
 def build_order_specs(by_title):
@@ -195,7 +329,9 @@ def build_order_specs(by_title):
         add(((i + 3) % 8) + 1, combo, random.randint(8, 55))
 
     # Group D: 26 random orders (1-4 items, qty 1-3)
-    titles = list(by_title)
+    # NOTE: picks stay on the original hand-written catalog titles so the
+    # accepted order dataset is byte-identical before/after the catalog expansion.
+    titles = [t for _, t, *_ in CATALOG]
     for i in range(26):
         n = random.choice([1, 1, 2, 2, 2, 3, 4])
         picks = [(random.choice(titles), random.randint(1, 3)) for _ in range(n)]

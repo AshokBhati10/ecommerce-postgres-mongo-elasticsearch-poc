@@ -26,12 +26,16 @@ export const api = {
   listUsers: () =>
     request('/api/users'),
 
-  // params: { category?, q?, active? } — backend defaults active=true
+  // params: { category?, q?, active?, page?, page_size? } — backend defaults active=true.
+  // When `page` is given the backend returns a paginated envelope
+  // { items, page, page_size, total, total_pages }; otherwise a plain list.
   listProducts: (params = {}) => {
     const q = new URLSearchParams()
     if (params.category) q.set('category', params.category)
     if (params.q) q.set('q', params.q)
     if (params.active !== undefined) q.set('active', String(params.active))
+    if (params.page !== undefined && params.page !== null) q.set('page', String(params.page))
+    if (params.page_size !== undefined && params.page_size !== null) q.set('page_size', String(params.page_size))
     const qs = q.toString()
     return request(`/api/products${qs ? `?${qs}` : ''}`)
   },

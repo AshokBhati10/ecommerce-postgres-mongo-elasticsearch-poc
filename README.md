@@ -29,7 +29,7 @@ docker compose up -d
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python -m scripts.seed        # schema + 8 users + 26 products + 42 orders + ES index
+python -m scripts.seed        # schema + 8 users + 500 products + 42 orders + ES index
 uvicorn app.main:app --reload
 
 # frontend (new shell)
@@ -48,8 +48,14 @@ then run the same backend/frontend steps above.
 `python -m scripts.seed` wipes and rebuilds everything deterministically:
 
 - 8 users (incl. `John Doe`, `Wendy Wireless`)
-- 26 products (25 active, 1 inactive) across `peripherals`, `audio`,
-  `cables`, `office` (≥ 5 each), with nested attributes, variants, and tags
+- 500 products (487 active, 13 inactive) across `peripherals`, `audio`,
+  `cables`, `office`, with nested attributes, variants, tags, stock levels,
+  and an `image_url` per product (deterministic `picsum.photos` URLs — no
+  binaries stored in MongoDB). The 25 hand-written products (incl. the
+  inactive `Old CRT Monitor` and the `Wireless Mouse` → `Wireless Mouse Pro`
+  rename fixture) are kept intact; the rest are generated deterministically
+  (`random.Random(20260928)`), so every seed produces the identical catalog.
+  To rebuild: `python -m scripts.seed` (wipes and recreates everything).
 - 42 orders / 96 items, statuses balanced 14/14/14 (PENDING/PROCESSING/SHIPPED)
 - deliberate fixture: order history keeps the snapshot `Wireless Mouse`
   ($50.16) while the live catalog sells `Wireless Mouse Pro` ($59.99) —
@@ -57,7 +63,9 @@ then run the same backend/frontend steps above.
 
 ## The five screens
 
-1. `/` — **Storefront** (MongoDB): product grid, category/text filters
+1. `/` — **Storefront** (MongoDB): paginated product grid (20/page, server-side
+   via `GET /api/products?page=&page_size=`), category/text filters, product
+   images with fallback, Previous/Next + page-number controls
 2. `/checkout` — **Checkout**: validates against Mongo, transactional insert in
    Postgres, syncs ES
 3. `/admin` — **Admin search** (Elasticsearch only): omni-search, status/date/
@@ -162,10 +170,14 @@ so staleness is visible.
 
 ```bash
 cd backend && source .venv/bin/activate
-.venv/bin/pytest ../tests/test_api.py -v   # 11 API tests (seed, orders, search, sync)
+.venv/bin/pytest ../tests/test_api.py -v   # 22 API tests (seed, catalog pagination, orders, search, sync)
 ```
 
-- `GET /api/products` returns 25 active products; `?active=false` returns 26
+- `GET /api/products` returns the full active list (legacy, used by catalog
+  admin); `?active=false` includes inactive products
+- `GET /api/products?page=1&page_size=20` returns a paginated envelope
+  `{items, page, page_size, total, total_pages}` (validated: `page >= 1`,
+  `1 <= page_size <= 100`); every item carries `image_url` and `stock`
 - Checkout returns 201 with `es_synced: true` (dual-write)
 - `POST /api/search/orders {"q": "Wireless"}` matches customer names and
   product titles, with revenue/status aggs

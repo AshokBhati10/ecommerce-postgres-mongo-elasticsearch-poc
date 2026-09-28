@@ -20,6 +20,8 @@ class ProductCreate(BaseModel):
     tags: list[str] = []
     attributes: dict = {}
     variants: list[dict] = []
+    image_url: str = ""
+    stock: int = 0
     active: bool = True
 
 
@@ -32,6 +34,8 @@ class ProductUpdate(BaseModel):
     tags: list[str] | None = None
     attributes: dict | None = None
     variants: list[dict] | None = None
+    image_url: str | None = None
+    stock: int | None = None
     active: bool | None = None
 
 
@@ -45,8 +49,19 @@ class ProductOut(BaseModel):
     tags: list[str] = []
     attributes: dict = {}
     variants: list[dict] = []
+    image_url: str = ""
+    stock: int = 0
     active: bool = True
     updated_at: datetime | None = None
+
+
+class ProductPage(BaseModel):
+    """Paginated catalog response (returned when `page` is given)."""
+    items: list[ProductOut]
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
 
 
 # ---------- Orders (PostgreSQL) ----------

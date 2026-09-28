@@ -10,8 +10,8 @@ def _to_out(doc: dict) -> dict:
     return doc
 
 
-def list_products(db, category: str | None = None, q: str | None = None,
-                  active: bool | None = True) -> list[dict]:
+def _product_filter(category: str | None = None, q: str | None = None,
+                    active: bool | None = True) -> dict:
     filt: dict = {}
     if active is not None:
         filt["active"] = active
@@ -22,7 +22,24 @@ def list_products(db, category: str | None = None, q: str | None = None,
             {"title": {"$regex": q, "$options": "i"}},
             {"tags": {"$regex": q, "$options": "i"}},
         ]
-    return [_to_out(d) for d in db.products.find(filt).sort("title", 1)]
+    return filt
+
+
+def list_products(db, category: str | None = None, q: str | None = None,
+                  active: bool | None = True) -> list[dict]:
+    return [_to_out(d) for d in
+            db.products.find(_product_filter(category, q, active)).sort("title", 1)]
+
+
+def list_products_paginated(db, category: str | None = None, q: str | None = None,
+                            active: bool | None = True,
+                            page: int = 1, page_size: int = 20) -> tuple[list[dict], int]:
+    """One page of products (sorted by title) plus the total matching count."""
+    filt = _product_filter(category, q, active)
+    total = db.products.count_documents(filt)
+    skip = (page - 1) * page_size
+    cursor = (db.products.find(filt).sort("title", 1).skip(skip).limit(page_size))
+    return [_to_out(d) for d in cursor], total
 
 
 def get_product(db, product_id: str) -> dict | None:

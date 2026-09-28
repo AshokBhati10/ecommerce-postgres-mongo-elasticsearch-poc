@@ -54,6 +54,72 @@ def test_products_category_filter():
     assert products and all(p["category"] == "audio" for p in products)
 
 
+def test_products_pagination_envelope():
+    r = client.get("/api/products", params={"page": 1, "page_size": 20})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["page"] == 1
+    assert body["page_size"] == 20
+    assert body["total"] >= 400  # large seeded catalog
+    assert body["total_pages"] == -(-body["total"] // 20)  # ceil division
+    assert len(body["items"]) == 20
+    # every item carries an image URL and stock
+    for p in body["items"]:
+        assert p["image_url"].startswith("https://picsum.photos/seed/")
+        assert isinstance(p["stock"], int)
+
+
+def test_products_pagination_pages_differ():
+    p1 = client.get("/api/products", params={"page": 1, "page_size": 10}).json()
+    p2 = client.get("/api/products", params={"page": 2, "page_size": 10}).json()
+    ids1 = {i["id"] for i in p1["items"]}
+    ids2 = {i["id"] for i in p2["items"]}
+    assert ids1 and ids2 and not ids1 & ids2
+    # last page is partial-or-full, beyond-last is empty but keeps metadata
+    last = client.get("/api/products",
+                      params={"page": p1["total_pages"], "page_size": 10}).json()
+    assert 0 < len(last["items"]) <= 10
+    beyond = client.get("/api/products",
+                        params={"page": p1["total_pages"] + 1, "page_size": 10}).json()
+    assert beyond["items"] == []
+    assert beyond["total"] == p1["total"]
+    assert beyond["total_pages"] == p1["total_pages"]
+
+
+def test_products_pagination_validation():
+    for params in ({"page": 0}, {"page": -1},
+                   {"page": 1, "page_size": 0}, {"page": 1, "page_size": 101}):
+        r = client.get("/api/products", params=params)
+        assert r.status_code == 422, params
+
+
+def test_products_pagination_with_category_filter():
+    r = client.get("/api/products",
+                   params={"category": "audio", "page": 1, "page_size": 5})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["items"] and all(p["category"] == "audio" for p in body["items"])
+    # total matches the unpaginated filtered count
+    r2 = client.get("/api/products", params={"category": "audio"})
+    assert body["total"] == len(r2.json())
+
+
+def test_products_pagination_search():
+    r = client.get("/api/products",
+                   params={"q": "wireless", "page": 1, "page_size": 50})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total"] >= 6
+    assert len(body["items"]) == min(50, body["total"])
+
+
+def test_products_legacy_list_without_page():
+    # existing callers (e.g. catalog admin) still get a plain list
+    r = client.get("/api/products")
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+
+
 def _wireless_mouse_pro_id() -> str:
     r = client.get("/api/products", params={"q": "Wireless Mouse Pro"})
     return r.json()[0]["id"]
