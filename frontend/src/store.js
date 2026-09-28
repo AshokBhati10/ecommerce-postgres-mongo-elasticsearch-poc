@@ -17,15 +17,24 @@ export const store = reactive({
   cart: loadJson('shop.cart') || {}
 })
 
-// Accounts saved before the role field existed get the default role.
-function loadUser() {
-  const u = loadJson('shop.user')
-  if (u && !u.role) u.role = 'customer'
+// Every user in the store must carry a known role. The role can be missing
+// (older backend not returning it, stale localStorage) or unexpected —
+// either case used to make the router guard redirect / to / forever,
+// aborting the post-login navigation until a manual refresh.
+function normalizeRole(u) {
+  if (u) {
+    const r = String(u.role || '').toLowerCase()
+    u.role = r === 'admin' ? 'admin' : 'customer'
+  }
   return u
 }
 
+function loadUser() {
+  return normalizeRole(loadJson('shop.user'))
+}
+
 export function setUser(user) {
-  store.user = user
+  store.user = normalizeRole(user)
 }
 
 export function logout() {

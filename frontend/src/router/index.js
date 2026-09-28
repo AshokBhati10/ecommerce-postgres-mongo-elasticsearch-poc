@@ -45,8 +45,12 @@ router.beforeEach((to) => {
   if (!user) return { name: 'login' }
 
   // Role check: wrong role → back to the storefront.
+  // The role is normalized defensively: setUser/loadUser guarantee a known
+  // value, but an unknown one must never cause a redirect loop (/ -> /),
+  // which aborts navigation and strands the user on the login page.
+  const role = user.role === 'admin' ? 'admin' : 'customer'
   const roles = to.meta.roles
-  if (roles && !roles.includes(user.role)) {
+  if (roles && !roles.includes(role)) {
     return { name: 'storefront' }
   }
   return true

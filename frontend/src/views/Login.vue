@@ -39,12 +39,16 @@ const selectedId = ref('')
 const signingIn = ref(false)
 const error = ref('')
 
-function signIn() {
+async function signIn() {
   const user = users.value.find((u) => String(u.id) === selectedId.value)
   if (!user) return
   signingIn.value = true
-  setUser(user)
-  router.push({ name: 'storefront' })
+  try {
+    setUser(user) // stores the user and normalizes the role
+    await router.push({ name: 'storefront' })
+  } finally {
+    signingIn.value = false
+  }
 }
 
 onMounted(async () => {
