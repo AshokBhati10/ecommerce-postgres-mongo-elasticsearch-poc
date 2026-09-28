@@ -26,6 +26,9 @@ export const api = {
   listUsers: () =>
     request('/api/users'),
 
+  listUserOrders: (userId, limit = 100) =>
+    request(`/api/users/${enc(userId)}/orders?limit=${enc(limit)}`),
+
   // params: { category?, q?, active?, page?, page_size? } — backend defaults active=true.
   // When `page` is given the backend returns a paginated envelope
   // { items, page, page_size, total, total_pages }; otherwise a plain list.

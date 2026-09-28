@@ -142,6 +142,11 @@ def _image_url_for(title, category):
     return _PRODUCT_IMAGES[_CATEGORY_FALLBACK_IMAGE.get(category, "desksetup")]
 
 
+# The POC's two designated admin accounts (user ids from USERS above).
+# No role information existed in the original dataset; these are set as
+# admins so the frontend can demonstrate role-based navigation.
+ADMIN_USER_IDS = (2, 4)  # Jane Smith, Alex Rivera
+
 USERS = [
     (1, "John Doe", "john.doe@example.com"),
     (2, "Jane Smith", "jane.smith@example.com"),
@@ -385,6 +390,10 @@ def seed_postgres_schema(pool):
                 (uid, name, email),
             )
         cur.execute("SELECT setval('users_id_seq', 8)")
+        cur.execute(
+            "UPDATE users SET role = 'admin' WHERE id = ANY(%s)",
+            (list(ADMIN_USER_IDS),),
+        )
     print(f"Postgres: schema ready, {len(USERS)} users")
 
 
@@ -646,6 +655,9 @@ def verify(pool, mdb, es, index):
     # --- PostgreSQL users ---
     users = pg_repo.list_users(pool)
     check(len(users) == 8, f"users: expected 8, got {len(users)}")
+    admins = sorted(u["id"] for u in users if u.get("role") == "admin")
+    check(admins == sorted(ADMIN_USER_IDS),
+          f"admin users: expected {sorted(ADMIN_USER_IDS)}, got {admins}")
 
     # --- MongoDB catalog ---
     total_products = mdb.products.count_documents({})

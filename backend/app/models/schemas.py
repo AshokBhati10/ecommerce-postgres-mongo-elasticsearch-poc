@@ -8,6 +8,7 @@ class UserOut(BaseModel):
     id: int
     name: str
     email: str
+    role: str = "customer"
 
 
 # ---------- Products (MongoDB) ----------

@@ -12,13 +12,35 @@ function loadJson(key) {
 }
 
 export const store = reactive({
-  user: loadJson('shop.user'),
+  user: loadUser(),
   // productId -> { product: { id, title, price }, quantity }
   cart: loadJson('shop.cart') || {}
 })
 
+// Accounts saved before the role field existed get the default role.
+function loadUser() {
+  const u = loadJson('shop.user')
+  if (u && !u.role) u.role = 'customer'
+  return u
+}
+
 export function setUser(user) {
   store.user = user
+}
+
+export function logout() {
+  store.user = null
+}
+
+// Role of the selected (simulated-login) user: 'admin' or 'customer'.
+export const userRole = computed(() => store.user?.role || null)
+
+export const isAdmin = computed(() => userRole.value === 'admin')
+
+export const isCustomer = computed(() => userRole.value === 'customer')
+
+export function roleLabel(role) {
+  return role === 'admin' ? 'Admin' : 'Customer'
 }
 
 export function addToCart(product, qty = 1) {

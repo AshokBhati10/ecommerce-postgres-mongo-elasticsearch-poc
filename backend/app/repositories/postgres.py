@@ -6,13 +6,13 @@ from psycopg_pool import ConnectionPool
 
 def list_users(pool: ConnectionPool) -> list[dict]:
     with pool.connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id, name, email FROM users ORDER BY id")
+        cur.execute("SELECT id, name, email, role FROM users ORDER BY id")
         return cur.fetchall()
 
 
 def get_user(pool: ConnectionPool, user_id: int) -> dict | None:
     with pool.connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id, name, email FROM users WHERE id = %s", (user_id,))
+        cur.execute("SELECT id, name, email, role FROM users WHERE id = %s", (user_id,))
         return cur.fetchone()
 
 
@@ -74,6 +74,41 @@ def get_order(pool: ConnectionPool, order_id: int) -> dict | None:
         )
         order["items"] = cur.fetchall()
     return order
+
+
+def list_orders_by_user(
+    pool: ConnectionPool, user_id: int, limit: int = 100
+) -> list[dict]:
+    """Most recent orders for one user, with line items (PostgreSQL source of truth)."""
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT o.id, o.user_id, o.order_date, o.status, o.total_amount, o.updated_at
+            FROM orders o
+            WHERE o.user_id = %s
+            ORDER BY o.order_date DESC
+            LIMIT %s
+            """,
+            (user_id, limit),
+        )
+        orders = cur.fetchall()
+        if not orders:
+            return []
+        cur.execute(
+            """
+            SELECT order_id, product_id, title, quantity, unit_price
+            FROM order_items
+            WHERE order_id = ANY(%s)
+            ORDER BY order_id, id
+            """,
+            ([o["id"] for o in orders],),
+        )
+        by_order: dict[int, list[dict]] = {}
+        for item in cur.fetchall():
+            by_order.setdefault(item["order_id"], []).append(item)
+        for order in orders:
+            order["items"] = by_order.get(order["id"], [])
+        return orders
 
 
 def update_order_status(pool: ConnectionPool, order_id: int, status: str) -> dict | None:

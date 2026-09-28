@@ -47,7 +47,8 @@ then run the same backend/frontend steps above.
 
 `python -m scripts.seed` wipes and rebuilds everything deterministically:
 
-- 8 users (incl. `John Doe`, `Wendy Wireless`)
+- 8 users (incl. `John Doe`, `Wendy Wireless`; `Jane Smith` and `Alex Rivera`
+  are the two admin accounts, the rest are customers)
 - 5,000 products (4,885 active, 115 inactive) across `peripherals`, `audio`,
   `cables`, `office`, with nested attributes, variants, tags, stock levels,
   and an `image_url` per product (deterministic, product-relevant photo URLs —
@@ -67,18 +68,30 @@ then run the same backend/frontend steps above.
   ($50.16) while the live catalog sells `Wireless Mouse Pro` ($59.99) —
   this proves checkout snapshots instead of referencing live catalog data
 
-## The five screens
+## The screens (OneStop)
+
+Opening the app shows a **login / account-selection screen** — pick one of the
+8 seeded users (simulated login, no passwords). Two accounts are admins
+(Jane Smith, Alex Rivera); the rest are customers. Navigation and routes are
+filtered by the selected role:
+
+**Customers** — Storefront, Checkout, My Orders:
 
 1. `/` — **Storefront** (MongoDB): paginated product grid (20/page, server-side
    via `GET /api/products?page=&page_size=`), category/text filters, product
    images with fallback, Previous/Next + page-number controls
 2. `/checkout` — **Checkout**: validates against Mongo, transactional insert in
    Postgres, syncs ES
-3. `/admin` — **Admin search** (Elasticsearch only): omni-search, status/date/
+3. `/orders` — **My Orders** (PostgreSQL): the current user's order history via
+   `GET /api/users/{id}/orders`
+
+**Admins** — Storefront, Admin Search, Catalog:
+
+4. `/admin` — **Admin search** (Elasticsearch only): omni-search, status/date/
    price facets, revenue + per-status aggregations
-4. `/admin/orders/:id` — **Order details** (PostgreSQL canonical): receipt,
+5. `/admin/orders/:id` — **Order details** (PostgreSQL canonical): receipt,
    status update, ES in-sync badge
-5. `/admin/catalog` — **Catalog admin** (MongoDB): create/edit products with
+6. `/admin/catalog` — **Catalog admin** (MongoDB): create/edit products with
    tags, attributes, variants
 
 ## Sync strategies (Postgres → Elasticsearch)

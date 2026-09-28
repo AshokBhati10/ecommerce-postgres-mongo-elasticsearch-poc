@@ -4,8 +4,13 @@
 CREATE TABLE IF NOT EXISTS users (
     id         SERIAL PRIMARY KEY,
     name       TEXT NOT NULL,
-    email      TEXT NOT NULL UNIQUE
+    email      TEXT NOT NULL UNIQUE,
+    role       TEXT NOT NULL DEFAULT 'customer'
+               CHECK (role IN ('customer', 'admin'))
 );
+
+-- Backfill for databases created before the role column existed.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'customer';
 
 CREATE TABLE IF NOT EXISTS orders (
     id           SERIAL PRIMARY KEY,

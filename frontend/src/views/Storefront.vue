@@ -5,28 +5,16 @@
     <div class="card">
       <div class="filters-row">
         <div class="field">
-          <label>Log In As</label>
-          <select class="select" :value="store.user ? String(store.user.id) : ''" @change="onUserChange">
-            <option value="">— Guest —</option>
-            <option v-for="u in users" :key="u.id" :value="String(u.id)">
-              {{ u.name }} ({{ u.email }})
-            </option>
-          </select>
-        </div>
-        <div class="field">
           <label>Category</label>
           <select class="select" v-model="category" @change="onCategoryChange">
             <option value="">All categories</option>
             <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
           </select>
         </div>
-        <div class="field">
+        <div class="field search-field">
           <label>Search</label>
           <input class="input" v-model="q" @input="onSearchInput" placeholder="Search products…" />
         </div>
-      </div>
-      <div v-if="!store.user" class="note">
-        Pick a user above to enable checkout — placing an order requires a user_id.
       </div>
     </div>
 
@@ -76,11 +64,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { api } from '../api/client.js'
-import { store, setUser, addToCart, formatPrice } from '../store.js'
+import { addToCart, formatPrice } from '../store.js'
 
 const PAGE_SIZE = 20
 
-const users = ref([])
 const categories = ref([])
 const products = ref([])
 const category = ref('')
@@ -119,12 +106,6 @@ const pageNumbers = computed(() => {
 })
 
 const pageLoading = computed(() => loading.value)
-
-function onUserChange(e) {
-  const id = e.target.value
-  const user = users.value.find((u) => String(u.id) === id) || null
-  setUser(user)
-}
 
 function shortDesc(d) {
   if (!d) return ''
@@ -185,11 +166,6 @@ function onSearchInput() {
 }
 
 onMounted(async () => {
-  try {
-    users.value = await api.listUsers()
-  } catch (e) {
-    error.value = 'Could not load users: ' + e.message
-  }
   try {
     categories.value = await api.listCategories()
   } catch {

@@ -7,8 +7,8 @@
       <span v-if="success.es_synced">Search index is in sync.</span>
       <span v-else>Search sync is pending — the order will appear in admin search shortly.</span>
       <div style="margin-top: 0.5rem">
-        <router-link :to="{ name: 'order-details', params: { id: success.id } }">
-          View order details
+        <router-link :to="{ name: 'my-orders' }">
+          View my orders
         </router-link>
       </div>
     </div>
@@ -20,9 +20,6 @@
     </div>
 
     <div v-else-if="lines.length > 0" class="card">
-      <div v-if="!store.user" class="alert alert-info">
-        Pick a user on the <router-link to="/">storefront</router-link> before placing an order.
-      </div>
       <table class="tbl">
         <thead>
           <tr><th>Product</th><th>Unit price</th><th>Qty</th><th>Line total</th><th></th></tr>

@@ -38,7 +38,7 @@ a:hover { text-decoration: underline; }
 }
 .nav .brand { font-weight: 700; font-size: 1.1rem; color: #fff; }
 .nav a { color: #d1d5db; }
-.nav a.router-link-active { color: #fff; font-weight: 600; }
+.nav a.router-link-exact-active { color: #fff; font-weight: 600; }
 .nav .spacer { flex: 1; }
 .nav .user-badge { font-size: 0.85rem; color: #d1d5db; }
 .nav .user-badge b { color: #fff; }
@@ -194,3 +194,105 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
 .loading { color: var(--muted); padding: 1rem 0; }
 .empty { color: var(--muted); padding: 1.5rem; text-align: center; }
 .note { font-size: 0.85rem; color: var(--muted); }
+
+/* ---- OneStop header ---- */
+.nav {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.nav .brand { display: inline-flex; align-items: center; gap: 0.4rem; }
+.nav .brand-mark { font-size: 1.25rem; }
+.nav a { padding: 0.35rem 0.1rem; }
+.user-badge { display: inline-flex; align-items: center; gap: 0.75rem; }
+.user-identity { display: inline-flex; flex-direction: column; line-height: 1.25; text-align: right; }
+.user-name { color: #fff; font-weight: 600; font-size: 0.9rem; }
+.user-role {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9ca3af;
+}
+.btn-ghost {
+  background: transparent;
+  border-color: #4b5563;
+  color: #d1d5db;
+}
+.btn-ghost:hover { background: #1f2937; color: #fff; }
+
+/* ---- login / account selection ---- */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  background: linear-gradient(135deg, #111827 0%, #1f2937 60%, #1e3a8a 130%);
+}
+.login-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  padding: 2.5rem 2.25rem;
+  width: 100%;
+  max-width: 420px;
+}
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+.login-logo { font-size: 1.75rem; }
+.login-name { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.01em; }
+.login-title { margin: 0 0 0.25rem; font-size: 1.35rem; }
+.login-subtitle { margin: 0 0 1.5rem; color: var(--muted); }
+.login-label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem; }
+.login-select { margin-bottom: 1.25rem; }
+.login-btn { width: 100%; padding: 0.65rem 1rem; font-size: 1rem; }
+.login-hint { margin: 1.25rem 0 0; font-size: 0.78rem; color: var(--muted); text-align: center; }
+
+/* ---- storefront product cards ---- */
+.filters-row .search-field { flex: 2; }
+.product-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.product-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+.product-card h3 { line-height: 1.3; }
+.product-card .desc { margin-bottom: 0.5rem; }
+.product-card .price {
+  font-size: 1.3rem;
+  color: var(--primary-dark);
+  border-top: 1px solid var(--border);
+  padding-top: 0.6rem;
+}
+.product-card .btn { margin-top: 0.25rem; }
+
+/* ---- my orders ---- */
+.order-card { margin-bottom: 1rem; }
+.order-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+.order-id { font-weight: 700; font-size: 1.05rem; }
+.order-date { color: var(--muted); font-size: 0.85rem; }
+.order-side { display: flex; align-items: center; gap: 0.75rem; }
+.order-total { font-weight: 700; font-size: 1.15rem; }
+.order-items td.num { text-align: right; white-space: nowrap; }
+.status-pill {
+  display: inline-block;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.status-shipped { background: #dcfce7; color: #166534; }
+.status-processing { background: #fef3c7; color: #92400e; }
+.status-pending { background: #e0e7ff; color: #3730a3; }
