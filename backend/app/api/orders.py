@@ -37,7 +37,8 @@ def get_order(order_id: int):
 @router.patch("/{order_id}/status", response_model=OrderOut)
 def update_order_status(order_id: int, payload: StatusUpdate):
     order = order_service.update_status(
-        pg_pool(), es_client(), settings.es_index, order_id, payload.status
+        pg_pool(), es_client(), settings.es_index, order_id, payload.status,
+        settings.sync_strategy,
     )
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")

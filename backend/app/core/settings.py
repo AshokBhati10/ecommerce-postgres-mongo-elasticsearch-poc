@@ -15,9 +15,12 @@ class Settings(BaseSettings):
     # API
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-    # Sync: "dual_write" or "polling"
+    # Sync: "dual_write", "polling", or "celery" (recommended async strategy)
     sync_strategy: str = "dual_write"
     poll_interval_seconds: int = 15
+    # Celery / RabbitMQ (used when sync_strategy == "celery")
+    celery_broker_url: str = "amqp://guest:guest@localhost:5672//"
+    celery_result_backend: str = "rpc://"
     # Frontend
     vite_api_url: str = "http://localhost:8000"
 

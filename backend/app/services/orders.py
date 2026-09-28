@@ -48,9 +48,28 @@ def place_order(pool, db, es, index: str, user_id: int,
         except Exception as exc:  # ES down: order is safe in Postgres; polling reindex heals it.
             logger.warning("Dual-write to Elasticsearch failed for order %s: %s",
                            full["id"], exc)
+    elif sync_strategy == "celery":
+        # Enqueued only AFTER the Postgres transaction committed above, so the
+        # worker always finds the order. es_synced stays False until the
+        # worker actually indexes the document (tracked via es_in_sync).
+        _enqueue_order_sync(full["id"])
     # With "polling" the background worker picks the order up within one interval.
 
     return {**_order_out(full), "es_synced": es_synced}
+
+
+def _enqueue_order_sync(order_id: int) -> bool:
+    """Publish the ES sync task to RabbitMQ. Call only after the Postgres
+    transaction committed. Never raises: if the broker is unreachable the
+    order remains safe in Postgres and the caller reports es_synced=False."""
+    try:
+        from ..tasks.order_sync import sync_order_to_elasticsearch
+        sync_order_to_elasticsearch.delay(order_id)
+        return True
+    except Exception as exc:
+        logger.warning("Could not enqueue ES sync task for order %s: %s",
+                       order_id, exc)
+        return False
 
 
 def get_order_detail(pool, es, index: str, order_id: int) -> dict | None:
@@ -71,15 +90,19 @@ def get_order_detail(pool, es, index: str, order_id: int) -> dict | None:
     return out
 
 
-def update_status(pool, es, index: str, order_id: int, status: str) -> dict | None:
+def update_status(pool, es, index: str, order_id: int, status: str,
+                  sync_strategy: str = "dual_write") -> dict | None:
     order = pg_repo.update_order_status(pool, order_id, status)
     if not order:
         return None
     full = pg_repo.get_order(pool, order_id)
-    try:
-        es_repo.index_order(es, index, full)  # keep Screen 3 accurate
-    except Exception as exc:
-        logger.warning("ES status sync failed for order %s: %s", order_id, exc)
+    if sync_strategy == "celery":
+        _enqueue_order_sync(order_id)  # worker re-reads the committed row
+    else:
+        try:
+            es_repo.index_order(es, index, full)  # keep Screen 3 accurate
+        except Exception as exc:
+            logger.warning("ES status sync failed for order %s: %s", order_id, exc)
     return _order_out(full)
 
 

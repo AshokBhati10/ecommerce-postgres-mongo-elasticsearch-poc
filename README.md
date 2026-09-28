@@ -17,7 +17,7 @@ derived index rebuilt from PostgreSQL, never written directly by user code.
 ## Stack
 
 Python 3.11+ · FastAPI/Uvicorn · Vue 3/Vite · PostgreSQL 16 · MongoDB 8 ·
-Elasticsearch 8.15 · Docker Compose
+Elasticsearch 8.15 · RabbitMQ · Celery · Docker Compose
 
 ## Quickstart (Docker)
 
@@ -77,6 +77,58 @@ Configured via `SYNC_STRATEGY`:
 - **`polling`**: a background worker (every `POLL_INTERVAL_SECONDS`) bulk-indexes
   orders newer than its watermark. Orders appear in ES within one interval —
   eventual consistency, self-healing after ES outages.
+- **`celery`** (recommended async strategy): after the order transaction
+  commits, the API enqueues `orders.sync_order_to_elasticsearch(order_id)` to
+  RabbitMQ; a Celery worker consumes it, re-reads the canonical order from
+  Postgres, and indexes it into ES. Eventual consistency with retries.
+
+```
+PostgreSQL
+    ↓  (task enqueued only after commit)
+Celery task → RabbitMQ → Celery worker
+    ↓
+Elasticsearch
+```
+
+### Why RabbitMQ + Celery
+
+- FastAPI never waits for Elasticsearch — checkout stays fast even if ES is slow.
+- PostgreSQL remains the source of truth; ES is a derived index.
+- Failed ES writes are retried with backoff instead of being lost.
+- RabbitMQ buffers the work, so a burst of orders doesn't overload ES.
+- The task carries only the order id; the worker re-reads the canonical row,
+  and indexing uses the order id as the ES document id, so redelivery is
+  idempotent.
+
+### Running the celery strategy (4 terminals)
+
+```bash
+# Terminal 1: infrastructure (Postgres, Mongo, ES, RabbitMQ)
+docker compose up -d
+
+# Terminal 2: API with the celery strategy
+cd backend
+SYNC_STRATEGY=celery uvicorn app.main:app
+
+# Terminal 3: Celery worker (from backend/)
+celery -A app.celery_app:celery_app worker --loglevel=info
+
+# Terminal 4: frontend
+cd frontend
+npm run dev                   # http://localhost:5173
+```
+
+Then place an order (Screen 2) and verify:
+
+1. `GET /api/orders/<id>` → order exists in Postgres, `"es_synced": false`
+   (enqueued, not yet indexed), `"es_in_sync": false`
+2. Watch Terminal 3: `[INFO] Task orders.sync_order_to_elasticsearch[...] succeeded`
+   and the RabbitMQ management UI at http://localhost:15672 (guest/guest)
+   shows the message delivered
+3. `GET /api/orders/<id>` → `"es_in_sync": true`; the order is searchable on
+   Screen 3
+4. `PATCH /api/orders/<id>/status` → status commits to Postgres, a sync task
+   is enqueued, and Screen 3 reflects the new status once the worker runs
 
 ### Comparing them (demo)
 
