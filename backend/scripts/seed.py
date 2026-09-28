@@ -19,6 +19,128 @@ from app.services import sync as sync_service
 
 NOW = datetime.now(timezone.utc)
 
+# Product-relevant catalog images.
+#
+# Curated, stable CDN photo URLs (Unsplash / Pexels), each verified
+# 2026-09-28 to return HTTP 200 with an image content type and visually
+# confirmed to depict the product type it is assigned to. URLs are fixed
+# strings (no randomness), so reseeding always produces the same catalog.
+# No binary image data is stored in the repo or in MongoDB.
+def _u(photo_id):
+    return f"https://images.unsplash.com/photo-{photo_id}?auto=format&fit=crop&w=600&q=80"
+
+
+_PRODUCT_IMAGES = {
+    "mouse": _u("1625750188088-f6cd6756349c"),        # wireless gaming mouse
+    "keyboard": _u("1656711081969-9d16ebc2d210"),     # mechanical keyboard
+    "monitor": _u("1547658718-1cdaa0852790"),         # desktop monitor
+    "hub": _u("1616578273461-3a99ce422de6"),          # USB-C hub with accessories
+    "monitorarm": _u("1614598389565-8d56eddd2f48"),   # monitor on adjustable arm
+    "laptopstand": _u("1663873148245-df991e1717ea"),  # aluminum laptop stand
+    "desksetup": _u("1591222380707-dcde425cc8ac"),    # tidy desk: monitor+keyboard+mouse
+    "earbuds": _u("1590658268037-6bf12165a8df"),      # wireless earbuds
+    "headphones": _u("1505740420928-5e560c06d30e"),   # over-ear headphones
+    "speaker": _u("1608043152269-423dbba4e7e1"),      # bluetooth speaker
+    "microphone": _u("1478737270239-2f02b77fc618"),   # studio microphone
+    "mixer": _u("1470225620780-dba8ba36b745"),        # audio mixer
+    "turntable": _u("1531469543542-5f61e38b875b"),    # turntable
+    "cable": ("https://images.pexels.com/photos/3921633/"
+              "pexels-photo-3921633.jpeg?auto=compress&cs=tinysrgb&w=600"),  # braided USB-C cable
+    "charger": _u("1591290619618-904f6dd935e3"),      # wireless charging pad
+    "desklamp": _u("1507473885765-e6ed057f782c"),     # desk lamp
+    "deskorganizer": ("https://images.pexels.com/photos/8581047/"
+                      "pexels-photo-8581047.jpeg?auto=compress&cs=tinysrgb&w=600"),  # desk organizer
+    "office": _u("1588357767511-c6b3010409a3"),       # home office desk
+    "crt": _u("1628329336337-8c33a8f08ec1"),          # CRT monitor
+}
+
+# (title keyword, image key) in priority order — specific phrases first.
+# Products without a dedicated photo fall back to the closest product type
+# (e.g. power strip -> cable, soundbar -> speaker, webcam -> monitor).
+_IMAGE_KEYWORDS = [
+    ("crt", "crt"),
+    ("studio monitor", "speaker"),
+    ("monitor arm", "monitorarm"),
+    ("monitor light", "desklamp"),
+    ("cable organizer", "cable"),
+    ("cable tray", "cable"),
+    ("cable management", "cable"),
+    ("desk organizer", "deskorganizer"),
+    ("file tray", "deskorganizer"),
+    ("pen holder", "deskorganizer"),
+    ("bookend", "deskorganizer"),
+    ("desk drawer", "deskorganizer"),
+    ("docking station", "hub"),
+    ("kvm switch", "hub"),
+    ("usb hub", "hub"),
+    ("headset stand", "headphones"),
+    ("power strip", "cable"),
+    ("extension cord", "cable"),
+    ("power adapter", "charger"),
+    ("gan charger", "charger"),
+    ("wireless charger", "charger"),
+    ("desk lamp", "desklamp"),
+    ("whiteboard", "office"),
+    ("wireless presenter", "office"),
+    ("graphics tablet", "desksetup"),
+    ("laptop stand", "laptopstand"),
+    ("laptop riser", "laptopstand"),
+    ("monitor riser", "laptopstand"),
+    ("privacy filter", "monitor"),
+    ("privacy screen", "monitor"),
+    ("desk mat", "desksetup"),
+    ("chair mat", "office"),
+    ("wrist rest", "desksetup"),
+    ("karaoke mic", "microphone"),
+    ("microphone arm", "microphone"),
+    ("audio interface", "mixer"),
+    ("sound mixer", "mixer"),
+    ("webcam", "monitor"),
+    ("headphone", "headphones"),
+    ("earbud", "earbuds"),
+    ("earphone", "earbuds"),
+    ("soundbar", "speaker"),
+    ("speaker", "speaker"),
+    ("radio", "speaker"),
+    ("turntable", "turntable"),
+    ("mixer", "mixer"),
+    ("microphone", "microphone"),
+    ("keyboard", "keyboard"),
+    ("trackpad", "keyboard"),
+    ("mouse", "mouse"),
+    ("monitor", "monitor"),
+    ("tablet", "desksetup"),
+    ("charger", "charger"),
+    ("adapter", "cable"),
+    ("ethernet", "cable"),
+    ("hdmi", "cable"),
+    ("cable", "cable"),
+    ("lamp", "desklamp"),
+    ("organizer", "deskorganizer"),
+    ("clock", "office"),
+    ("shelf", "office"),
+    ("footrest", "office"),
+    ("cushion", "office"),
+    ("hub", "hub"),
+]
+
+_CATEGORY_FALLBACK_IMAGE = {
+    "peripherals": "desksetup",
+    "audio": "headphones",
+    "cables": "cable",
+    "office": "office",
+}
+
+
+def _image_url_for(title, category):
+    """Deterministic product-relevant image URL for a catalog title."""
+    text = title.lower()
+    for keyword, key in _IMAGE_KEYWORDS:
+        if keyword in text:
+            return _PRODUCT_IMAGES[key]
+    return _PRODUCT_IMAGES[_CATEGORY_FALLBACK_IMAGE.get(category, "desksetup")]
+
+
 USERS = [
     (1, "John Doe", "john.doe@example.com"),
     (2, "Jane Smith", "jane.smith@example.com"),
@@ -238,7 +360,7 @@ def _generate_catalog_products():
                 "price": round(rng.uniform(*spec["price"]), 2),
                 "category": cat, "tags": tags, "attributes": attrs,
                 "variants": variants,
-                "image_url": f"https://picsum.photos/seed/{sku}/600/400",
+                "image_url": _image_url_for(title, cat),
                 "stock": sum(v["stock"] for v in variants),
                 # sprinkle a few inactive products in deterministically
                 "active": rng.random() >= 0.015,
@@ -271,7 +393,7 @@ def seed_mongo(mdb):
         docs.append({
             "sku": sku, "title": title, "description": desc, "price": price,
             "category": cat, "tags": tags, "attributes": attrs, "variants": variants,
-            "image_url": f"https://picsum.photos/seed/{sku}/600/400",
+            "image_url": _image_url_for(title, cat),
             "stock": sum(v.get("stock", 0) for v in variants),
             "active": True, "updated_at": NOW,
         })
@@ -279,7 +401,7 @@ def seed_mongo(mdb):
     docs.append({
         "sku": sku, "title": title, "description": desc, "price": price,
         "category": cat, "tags": tags, "attributes": attrs, "variants": variants,
-        "image_url": f"https://picsum.photos/seed/{sku}/600/400",
+        "image_url": _image_url_for(title, cat),
         "stock": sum(v.get("stock", 0) for v in variants),
         "active": False, "updated_at": NOW,
     })

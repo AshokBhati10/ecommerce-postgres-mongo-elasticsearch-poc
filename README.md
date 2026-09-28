@@ -50,8 +50,9 @@ then run the same backend/frontend steps above.
 - 8 users (incl. `John Doe`, `Wendy Wireless`)
 - 500 products (487 active, 13 inactive) across `peripherals`, `audio`,
   `cables`, `office`, with nested attributes, variants, tags, stock levels,
-  and an `image_url` per product (deterministic `picsum.photos` URLs — no
-  binaries stored in MongoDB). The 25 hand-written products (incl. the
+  and an `image_url` per product (deterministic, product-relevant photo URLs —
+  curated Unsplash/Pexels images matched to the product type, e.g. mice get a
+  mouse photo, cables get a cable photo; no binaries stored in MongoDB). The 25 hand-written products (incl. the
   inactive `Old CRT Monitor` and the `Wireless Mouse` → `Wireless Mouse Pro`
   rename fixture) are kept intact; the rest are generated deterministically
   (`random.Random(20260928)`), so every seed produces the identical catalog.

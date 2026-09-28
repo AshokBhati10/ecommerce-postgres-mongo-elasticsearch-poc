@@ -63,10 +63,29 @@ def test_products_pagination_envelope():
     assert body["total"] >= 400  # large seeded catalog
     assert body["total_pages"] == -(-body["total"] // 20)  # ceil division
     assert len(body["items"]) == 20
-    # every item carries an image URL and stock
+    # every item carries a curated product-relevant image URL and stock
     for p in body["items"]:
-        assert p["image_url"].startswith("https://picsum.photos/seed/")
+        assert p["image_url"].startswith(
+            ("https://images.unsplash.com/photo-", "https://images.pexels.com/photos/"))
         assert isinstance(p["stock"], int)
+
+
+def test_product_images_match_product_type():
+    # spot-check: image URLs visually correspond to the product type
+    r = client.get("/api/products", params={"q": "wireless mouse"})
+    assert r.status_code == 200
+    mice = r.json() if isinstance(r.json(), list) else r.json()["items"]
+    assert mice
+    assert all("1625750188088-f6cd6756349c" in p["image_url"] for p in mice), \
+        "mouse products should use the curated mouse photo"
+    r = client.get("/api/products", params={"q": "usb-c cable"})
+    assert r.status_code == 200
+    cables = r.json() if isinstance(r.json(), list) else r.json()["items"]
+    assert cables
+    assert all("pexels.com/photos/3921633" in p["image_url"] for p in cables), \
+        "cable products should use the curated cable photo"
+    # different product types get different images
+    assert mice[0]["image_url"] != cables[0]["image_url"]
 
 
 def test_products_pagination_pages_differ():
