@@ -15,6 +15,12 @@
           <label>Search</label>
           <input class="input" v-model="q" @input="onSearchInput" placeholder="Search products…" />
         </div>
+        <div class="field">
+          <label>Listing mode</label>
+          <button class="btn btn-sm" @click="toggleInfinite">
+            {{ infiniteMode ? 'Back to Pagination' : 'Enable Infinite Scrolling' }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -46,7 +52,7 @@
           <button class="btn btn-primary" @click="handleAddToCart(p)">Add to Cart</button>
         </div>
       </div>
-      <div v-if="totalPages > 1" class="pagination">
+      <div v-if="!infiniteMode && totalPages > 1" class="pagination">
         <button class="btn btn-sm" :disabled="page <= 1 || pageLoading" @click="goToPage(page - 1)">
           ‹ Previous
         </button>
@@ -60,6 +66,10 @@
         </button>
         <span class="page-info">Page {{ page }} of {{ totalPages }}</span>
       </div>
+      <div v-if="infiniteMode && infiniteLoading" class="loading">Loading more products…</div>
+      <div v-if="infiniteMode && infiniteDone && products.length > 0" class="end-note">
+        You’ve reached the end — all {{ total }} products loaded.
+      </div>
     </div>
   </div>
 
@@ -68,7 +78,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api } from '../api/client.js'
 import { addToCart, formatPrice } from '../store.js'
 
@@ -84,6 +94,15 @@ const page = ref(1)
 const total = ref(0)
 const totalPages = ref(0)
 let searchTimer = null
+
+// Optional infinite-scrolling mode. Off by default: normal ES pagination.
+// When on, the same backend page API is fetched page-by-page as the user
+// scrolls, and results are appended (never fetched all at once).
+const infiniteMode = ref(false)
+const infiniteLoading = ref(false) // a follow-on page fetch in progress
+const infiniteDone = ref(false)    // no more pages left to fetch
+const infinitePage = ref(1)        // next page to request in infinite mode
+let loadedIds = new Set()          // dedupe guard across appended pages
 
 // Cart acknowledgement toast (auto-dismissed, non-blocking).
 const toast = ref('')
@@ -170,16 +189,91 @@ function goToPage(n) {
 }
 
 function onCategoryChange() {
-  page.value = 1
-  loadProducts()
+  if (infiniteMode.value) {
+    resetInfinite()
+  } else {
+    page.value = 1
+    loadProducts()
+  }
 }
 
 function onSearchInput() {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
+    if (infiniteMode.value) {
+      resetInfinite()
+    } else {
+      page.value = 1
+      loadProducts()
+    }
+  }, 350)
+}
+
+// --- Infinite scrolling ------------------------------------------------
+
+// Reset the infinite list back to page 1 (fresh query/category), then fetch.
+function resetInfinite() {
+  loadedIds = new Set()
+  products.value = []
+  infinitePage.value = 1
+  infiniteDone.value = false
+  error.value = ''
+  loadNextInfinitePage()
+}
+
+async function loadNextInfinitePage() {
+  // One in-flight request at a time; stop once every page is loaded.
+  if (!infiniteMode.value || infiniteLoading.value || infiniteDone.value || loading.value) return
+  infiniteLoading.value = true
+  try {
+    const next = infinitePage.value
+    const res = await api.listProducts({
+      category: category.value,
+      q: q.value,
+      page: next,
+      page_size: PAGE_SIZE,
+    })
+    if (res && Array.isArray(res.items)) {
+      // Append only products not already shown (dedupe across pages).
+      const fresh = res.items.filter((p) => !loadedIds.has(p.id))
+      fresh.forEach((p) => loadedIds.add(p.id))
+      products.value = [...products.value, ...fresh]
+      total.value = res.total
+      totalPages.value = res.total_pages
+      if (next >= res.total_pages || res.items.length === 0) {
+        infiniteDone.value = true
+      } else {
+        infinitePage.value = next + 1
+      }
+    } else {
+      infiniteDone.value = true
+    }
+  } catch (e) {
+    error.value = 'Could not load products: ' + e.message
+    infiniteDone.value = true // stop retrying a failing page on its own
+  } finally {
+    infiniteLoading.value = false
+  }
+}
+
+function onScroll() {
+  if (!infiniteMode.value) return
+  const nearBottom =
+    window.innerHeight + window.scrollY >=
+    document.documentElement.scrollHeight - 600
+  if (nearBottom) loadNextInfinitePage()
+}
+
+function toggleInfinite() {
+  if (infiniteMode.value) {
+    // Back to normal pagination.
+    infiniteMode.value = false
     page.value = 1
     loadProducts()
-  }, 350)
+  } else {
+    infiniteMode.value = true
+    resetInfinite()
+  }
 }
 
 onMounted(async () => {
@@ -189,5 +283,10 @@ onMounted(async () => {
     // categories are optional — storefront works without them
   }
   await loadProducts()
+  window.addEventListener('scroll', onScroll, { passive: true })
+})
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', onScroll)
 })
 </script>
