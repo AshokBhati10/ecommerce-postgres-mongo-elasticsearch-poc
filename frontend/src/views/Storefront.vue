@@ -22,7 +22,10 @@
     <div v-else-if="error" class="alert alert-error">{{ error }}</div>
     <div v-else-if="products.length === 0" class="empty card">No products found.</div>
     <div v-else>
-      <div class="result-meta">Showing {{ products.length }} of {{ total }} products</div>
+      <div class="result-meta">
+        Showing {{ products.length }} of {{ total }} products
+        <span class="es-note">· search powered by Elasticsearch</span>
+      </div>
       <div class="grid">
         <div v-for="p in products" :key="p.id" class="card product-card">
           <img class="product-img" :src="p.image_url || FALLBACK_IMG" :alt="p.title"
@@ -40,7 +43,7 @@
             <b>Tags:</b> {{ p.tags.join(', ') }}
           </div>
           <div class="price">{{ formatPrice(p.price) }}</div>
-          <button class="btn btn-primary" @click="addToCart(p)">Add to Cart</button>
+          <button class="btn btn-primary" @click="handleAddToCart(p)">Add to Cart</button>
         </div>
       </div>
       <div v-if="totalPages > 1" class="pagination">
@@ -59,6 +62,9 @@
       </div>
     </div>
   </div>
+
+  <!-- Non-blocking cart acknowledgement: appears on add-to-cart, fades away. -->
+  <div v-if="toast" class="toast" role="status">{{ toast }}</div>
 </template>
 
 <script setup>
@@ -78,6 +84,17 @@ const page = ref(1)
 const total = ref(0)
 const totalPages = ref(0)
 let searchTimer = null
+
+// Cart acknowledgement toast (auto-dismissed, non-blocking).
+const toast = ref('')
+let toastTimer = null
+
+function handleAddToCart(p) {
+  addToCart(p) // existing cart/quantity logic unchanged
+  toast.value = `“${p.title}” added to cart`
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toast.value = '' }, 2500)
+}
 
 // Inline SVG placeholder shown when a product image is missing or fails to load.
 const FALLBACK_IMG =

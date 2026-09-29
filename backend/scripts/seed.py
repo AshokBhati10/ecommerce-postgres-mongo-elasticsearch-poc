@@ -1,7 +1,7 @@
 """Reproducible seed: Postgres users/orders/items (~50k orders), MongoDB catalog
-(5,000 products with images, + inactive products + the Wireless Mouse ->
-Wireless Mouse Pro rename fixture), and a fully caught-up Elasticsearch
-orders index.
+(100,000 products with images, + inactive products + the Wireless Mouse ->
+Wireless Mouse Pro rename fixture), a fully caught-up Elasticsearch orders
+index, and the Elasticsearch products index (search layer for the Storefront).
 
 Run from backend/:  python -m scripts.seed
 """
@@ -250,21 +250,28 @@ INACTIVE_PRODUCT = (
 
 # ---------- Generated large catalog ----------
 # Deterministic generator that grows the hand-written CATALOG above to a
-# genuinely large catalog (5,000 products) across the same four categories.
+# genuinely large catalog (100,000 products) across the same four categories.
 # Uses its own Random instance so order seeding (random.seed(42)) is untouched.
-CATALOG_TARGET_TOTAL = 5000
+CATALOG_TARGET_TOTAL = 100000
 
 _GEN_BRANDS = ["NorthPeak", "VoltEdge", "ClearLine", "DeskForge",
-               "SonicLab", "PixelPro", "AeroDesk", "BrightPath"]
+               "SonicLab", "PixelPro", "AeroDesk", "BrightPath",
+               "LumaCraft", "TerraTone", "NimbusLab", "ForgeLine"]
 _GEN_COLORS = ["black", "white", "gray", "silver", "blue", "red", "green", "navy"]
 _GEN_DESCRIPTORS = ["Ergo", "Pro", "Ultra", "Lite", "Max", "Silent",
-                    "Studio", "Elite", "Compact", "Flex", "Aero", "Prime"]
+                    "Studio", "Elite", "Compact", "Flex", "Aero", "Prime",
+                    "AirFlow", "Smart", "Touch", "Solar", "Titanium",
+                    "Hybrid", "Quantum", "Nova", "Zephyr", "Vortex",
+                    "Echo", "Pulse", "Atlas", "Nimbus", "Orbit", "Lumen",
+                    "Terra", "Pixel", "Wave", "Onyx"]
 _GEN_MODELS = ["S100", "S200", "S300", "X1", "X2", "X5", "MK-II", "MK-III",
-               "Pro 5", "Pro 7", "Air", "Go", "Plus", "Mini"]
+               "Pro 5", "Pro 7", "Air", "Go", "Plus", "Mini",
+               "M10", "M20", "X9", "T1", "T2", "Gen3", "Gen4", "Nano",
+               "Mega", "Duo", "Trio", "Z5", "V2", "Core", "S400", "S500"]
 
 _GEN_CATEGORY_SPECS = {
     "peripherals": {
-        "count": 1250, "sku_prefix": "PH", "price": (14.99, 249.99),
+        "sku_prefix": "PH", "price": (14.99, 249.99),
         "cores": ["Mouse", "Keyboard", "Monitor", "Webcam", "Docking Station",
                   "Trackpad", "Headset Stand", "USB Hub", "KVM Switch",
                   "Graphics Tablet", "Monitor Arm", "Laptop Riser", "Wrist Rest",
@@ -280,7 +287,7 @@ _GEN_CATEGORY_SPECS = {
                    "{brand}'s {desc_l} {core_l} — reliable performance, modern styling."],
     },
     "audio": {
-        "count": 1240, "sku_prefix": "AD", "price": (11.99, 349.99),
+        "sku_prefix": "AD", "price": (11.99, 349.99),
         "cores": ["Earbuds", "Headphones", "Bluetooth Speaker", "Soundbar",
                   "USB Microphone", "Earphones", "Studio Monitor", "Audio Interface",
                   "Headphone Stand", "Conference Speaker", "Portable Radio",
@@ -295,7 +302,7 @@ _GEN_CATEGORY_SPECS = {
                    "{brand}'s {desc_l} {core_l} — deep bass, clear highs."],
     },
     "cables": {
-        "count": 1242, "sku_prefix": "CB", "price": (4.99, 79.99),
+        "sku_prefix": "CB", "price": (4.99, 79.99),
         "cores": ["USB-C Cable", "HDMI Cable", "Ethernet Cable", "DisplayPort Cable",
                   "Wireless Charger", "GaN Charger", "Cable Organizer", "Extension Cord",
                   "Adapter Kit", "Braided Cable", "Power Strip", "Lightning Cable",
@@ -310,7 +317,7 @@ _GEN_CATEGORY_SPECS = {
                    "{brand}'s {desc_l} {core_l}, tested for thousands of bends."],
     },
     "office": {
-        "count": 1242, "sku_prefix": "OF", "price": (9.99, 199.99),
+        "sku_prefix": "OF", "price": (9.99, 199.99),
         "cores": ["Desk Lamp", "Monitor Light", "Desk Organizer", "Footrest",
                   "Cable Tray", "Desk Shelf", "Chair Mat", "Whiteboard",
                   "Desk Clock", "Pen Holder", "File Tray", "Monitor Riser",
@@ -328,26 +335,38 @@ _GEN_CATEGORY_SPECS = {
 
 
 def _generate_catalog_products():
-    """Deterministic extra products (no meaningless duplicates)."""
+    """Deterministic extra products (no meaningless duplicates).
+
+    A generator: yields one product dict at a time so the 100k catalog is
+    never held in memory all at once; callers insert in controlled batches.
+
+    Title space per category is cores x descriptors x colors x models
+    (~16 x ~35 x 8 x 30 ~= 134k combinations), so 25k products per category
+    stay varied; any residual collision gets a deterministic Mk suffix.
+    """
     rng = random.Random(20260928)
     used_titles = {t for _, t, *_ in CATALOG} | {INACTIVE_PRODUCT[1]}
     used_skus = {s for s, *_ in CATALOG} | {INACTIVE_PRODUCT[0]}
-    docs = []
+    # Split the generated target evenly across the four categories.
+    n_generated = CATALOG_TARGET_TOTAL - len(CATALOG) - 1  # minus inactive fixture
+    cats = list(_GEN_CATEGORY_SPECS)
+    base, rem = divmod(n_generated, len(cats))
+    counts = {c: base + (1 if i < rem else 0) for i, c in enumerate(cats)}
     for cat, spec in _GEN_CATEGORY_SPECS.items():
-        for i in range(spec["count"]):
+        for i in range(counts[cat]):
             sku = f"{spec['sku_prefix']}-{1000 + i}"
             assert sku not in used_skus, f"duplicate sku {sku}"
             used_skus.add(sku)
             core = rng.choice(spec["cores"])
             desc = rng.choice(spec["descriptors"])
             model = rng.choice(_GEN_MODELS)
-            title = f"{desc} {core} {model}"
+            color = rng.choice(_GEN_COLORS)
+            title = f"{desc} {color.title()} {core} {model}"
             suffix = 2
             while title in used_titles:
-                title = f"{desc} {core} {model} Mk{suffix}"
+                title = f"{desc} {color.title()} {core} {model} Mk{suffix}"
                 suffix += 1
             used_titles.add(title)
-            color = rng.choice(_GEN_COLORS)
             brand = rng.choice(_GEN_BRANDS)
             variants = []
             for _ in range(rng.choice([1, 1, 2, 2, 3])):
@@ -359,7 +378,7 @@ def _generate_catalog_products():
             attrs = {"brand": brand, "color": color}
             attrs.update(spec["attrs"](rng))
             blurb = rng.choice(spec["blurbs"])
-            docs.append({
+            yield {
                 "sku": sku, "title": title,
                 "description": blurb.format(brand=brand, core=core, desc=desc,
                                            core_l=core.lower(), desc_l=desc.lower()),
@@ -369,11 +388,10 @@ def _generate_catalog_products():
                 "image_url": _image_url_for(title, cat),
                 "stock": sum(v["stock"] for v in variants),
                 # sprinkle a few inactive products in deterministically
-                # (~2.8% -> ~140 inactive of 5,000, i.e. ~4,860 active)
+                # (~2.8% -> ~2,800 inactive of 100,000)
                 "active": rng.random() >= 0.028,
                 "updated_at": NOW,
-            })
-    return docs
+            }
 
 STATUSES = ["PENDING", "PROCESSING", "SHIPPED"]
 
@@ -397,31 +415,64 @@ def seed_postgres_schema(pool):
     print(f"Postgres: schema ready, {len(USERS)} users")
 
 
-def seed_mongo(mdb):
-    mdb.products.delete_many({})
-    docs = []
+def iter_product_docs():
+    """The full deterministic product catalog (hand-written + inactive
+    fixture + generated) as a lazy iterator. Separated from seed_mongo so the
+    product-only reindex script can reuse it without touching
+    PostgreSQL/orders. At most one insert batch is materialized at a time."""
     for sku, title, desc, price, cat, tags, attrs, variants in CATALOG:
-        docs.append({
+        yield {
             "sku": sku, "title": title, "description": desc, "price": price,
             "category": cat, "tags": tags, "attributes": attrs, "variants": variants,
             "image_url": _image_url_for(title, cat),
             "stock": sum(v.get("stock", 0) for v in variants),
             "active": True, "updated_at": NOW,
-        })
+        }
     sku, title, desc, price, cat, tags, attrs, variants = INACTIVE_PRODUCT
-    docs.append({
+    yield {
         "sku": sku, "title": title, "description": desc, "price": price,
         "category": cat, "tags": tags, "attributes": attrs, "variants": variants,
         "image_url": _image_url_for(title, cat),
         "stock": sum(v.get("stock", 0) for v in variants),
         "active": False, "updated_at": NOW,
-    })
-    docs.extend(_generate_catalog_products())
+    }
+    yield from _generate_catalog_products()
+
+
+def build_product_docs():
+    """Materialize the full catalog (handy for quick checks; seed_mongo
+    streams via iter_product_docs instead)."""
+    docs = list(iter_product_docs())
     assert len(docs) == CATALOG_TARGET_TOTAL, \
         f"catalog size {len(docs)} != target {CATALOG_TARGET_TOTAL}"
-    mdb.products.insert_many(docs)
-    n_active = sum(1 for d in docs if d["active"])
-    print(f"MongoDB: {len(docs)} products ({n_active} active, {len(docs) - n_active} inactive)")
+    return docs
+
+
+# One insert_many call per chunk: 100k individual inserts would take
+# orders of magnitude longer and hammer the server with round-trips.
+MONGO_INSERT_CHUNK = 10000
+
+
+def seed_mongo(mdb):
+    mdb.products.delete_many({})
+    batch: list[dict] = []
+    n_total = n_active = 0
+
+    def _flush():
+        if batch:
+            mdb.products.insert_many(batch, ordered=False)
+            batch.clear()
+
+    for doc in iter_product_docs():
+        batch.append(doc)
+        n_total += 1
+        n_active += 1 if doc["active"] else 0
+        if len(batch) >= MONGO_INSERT_CHUNK:
+            _flush()
+    _flush()
+    assert n_total == CATALOG_TARGET_TOTAL, \
+        f"catalog size {n_total} != target {CATALOG_TARGET_TOTAL}"
+    print(f"MongoDB: {n_total} products ({n_active} active, {n_total - n_active} inactive)")
 
 
 def build_order_specs(by_title):
@@ -663,11 +714,12 @@ def verify(pool, mdb, es, index):
     total_products = mdb.products.count_documents({})
     n_active = mdb.products.count_documents({"active": True})
     n_inactive = total_products - n_active
-    check(total_products == 5000, f"products: expected 5000, got {total_products}")
-    check(4800 <= n_active <= 4900,
-          f"active products: expected 4800-4900, got {n_active}")
-    check(n_inactive >= 100,
-          f"inactive products: expected >=100, got {n_inactive}")
+    check(total_products == 100000,
+          f"products: expected 100000, got {total_products}")
+    check(96000 <= n_active <= 98000,
+          f"active products: expected 96000-98000, got {n_active}")
+    check(n_inactive >= 2000,
+          f"inactive products: expected >=2000, got {n_inactive}")
     wireless = mdb.products.count_documents(
         {"active": True, "$or": [{"title": {"$regex": "wireless", "$options": "i"}},
                                  {"tags": "wireless"}]})
@@ -682,7 +734,7 @@ def verify(pool, mdb, es, index):
           "product document structure changed")
     cat_counts = {c: mdb.products.count_documents({"category": c})
                   for c in ("peripherals", "audio", "cables", "office")}
-    check(all(v >= 1000 for v in cat_counts.values()),
+    check(all(v >= 20000 for v in cat_counts.values()),
           f"category counts: {cat_counts}")
 
     with pool.connection() as conn, conn.cursor() as cur:
@@ -755,6 +807,10 @@ def verify(pool, mdb, es, index):
     es_count = es.count(index=index)["count"]
     check(es_count == n_orders, f"ES docs {es_count} != Postgres orders {n_orders}")
 
+    es_products = es.count(index=settings.es_products_index)["count"]
+    check(es_products == total_products,
+          f"ES product docs {es_products} != MongoDB products {total_products}")
+
     live = mdb.products.find_one({"sku": "WM-001"})
     check(live["title"] == "Wireless Mouse Pro",
           f"rename fixture missing: {live['title']}")
@@ -774,6 +830,8 @@ def verify(pool, mdb, es, index):
           f"({n_active} active, {n_inactive} inactive), categories={cat_counts}")
     print(f"Elasticsearch: index '{index}' has {es_count} docs "
           f"(== Postgres orders)")
+    print(f"Elasticsearch: index '{settings.es_products_index}' has "
+          f"{es_products} docs (== MongoDB products)")
 
 
 def main():
@@ -788,6 +846,10 @@ def main():
     rename_fixture(mdb)
     n = sync_service.reindex_all(pool, es, settings.es_index)
     print(f"Elasticsearch: index '{settings.es_index}' rebuilt with {n} docs")
+    n_products = sync_service.reindex_all_products(
+        mdb, es, settings.es_products_index)
+    print(f"Elasticsearch: index '{settings.es_products_index}' rebuilt "
+          f"with {n_products} docs")
     verify(pool, mdb, es, settings.es_index)
     db.close_all()
 

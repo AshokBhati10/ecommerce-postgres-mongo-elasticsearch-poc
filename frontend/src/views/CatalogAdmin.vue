@@ -58,7 +58,7 @@
     <div class="card">
       <h3>Products</h3>
       <div class="field checkbox-line" style="margin-bottom: 0.75rem">
-        <input type="checkbox" id="inclInactive" v-model="includeInactive" @change="load" />
+        <input type="checkbox" id="inclInactive" v-model="includeInactive" @change="page = 1; load()" />
         <label for="inclInactive">Include inactive products</label>
       </div>
       <div v-if="loading" class="loading">Loading…</div>
@@ -79,6 +79,11 @@
           </tr>
         </tbody>
       </table>
+      <div v-if="!loading && !loadError && totalPages > 1" class="pagination">
+        <button class="btn btn-sm" :disabled="page <= 1" @click="setPage(page - 1)">← Prev</button>
+        <span class="page-info">Page {{ page }} of {{ totalPages }} ({{ total }} products)</span>
+        <button class="btn btn-sm" :disabled="page >= totalPages" @click="setPage(page + 1)">Next →</button>
+      </div>
     </div>
   </div>
 </template>
@@ -96,6 +101,10 @@ const saving = ref(false)
 const formError = ref('')
 const formOk = ref('')
 const includeInactive = ref(false)
+const page = ref(1)
+const pageSize = 50
+const total = ref(0)
+const totalPages = ref(0)
 
 const form = ref(blankForm())
 const tagsText = ref('')
@@ -110,12 +119,32 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    products.value = await api.listProducts(includeInactive.value ? { active: false } : {})
+    // MongoDB-backed pagination (source of truth); the paginated Storefront
+    // path reads Elasticsearch instead.
+    const res = await api.listProducts({
+      admin: true,
+      page: page.value,
+      page_size: pageSize,
+      ...(includeInactive.value ? { active: false } : {}),
+    })
+    products.value = res.items
+    total.value = res.total
+    totalPages.value = res.total_pages
+    if (page.value > totalPages.value && totalPages.value > 0) {
+      page.value = totalPages.value
+      return load()
+    }
   } catch (e) {
     loadError.value = 'Could not load products: ' + e.message
   } finally {
     loading.value = false
   }
+}
+
+function setPage(p) {
+  page.value = p
+  load()
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 function resetForm() {

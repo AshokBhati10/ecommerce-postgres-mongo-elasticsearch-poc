@@ -49,15 +49,24 @@ then run the same backend/frontend steps above.
 
 - 8 users (incl. `John Doe`, `Wendy Wireless`; `Jane Smith` and `Alex Rivera`
   are the two admin accounts, the rest are customers)
-- 5,000 products (4,885 active, 115 inactive) across `peripherals`, `audio`,
-  `cables`, `office`, with nested attributes, variants, tags, stock levels,
+- 100,000 products (97,285 active, 2,715 inactive) across `peripherals`, `audio`,
+  `cables`, `office` (~25k each), with nested attributes, variants, tags, stock levels,
   and an `image_url` per product (deterministic, product-relevant photo URLs —
   curated Unsplash/Pexels images matched to the product type, e.g. mice get a
   mouse photo, cables get a cable photo; no binaries stored in MongoDB). The 25 hand-written products (incl. the
   inactive `Old CRT Monitor` and the `Wireless Mouse` → `Wireless Mouse Pro`
   rename fixture) are kept intact; the rest are generated deterministically
   (`random.Random(20260928)`), so every seed produces the identical catalog.
-  To rebuild: `python -m scripts.seed` (wipes and recreates everything).
+  Generation streams in 10k-document `insert_many` batches (never the whole
+  catalog in memory at once). To rebuild: `python -m scripts.seed` (wipes and recreates everything).
+- Elasticsearch has two indexes: `orders` (Admin Search, synced from Postgres
+  via RabbitMQ/Celery) and `products` (Storefront search/listing — full-text
+  over title/description/brand/tags, category filter, ES-side pagination).
+  `python -m scripts.reindex_products` rebuilds ONLY the MongoDB product
+  catalog and the `products` index; PostgreSQL, users, orders, and the
+  `orders` index are never touched. Product CRUD writes MongoDB first, then a
+  Celery task (`products.sync_product_to_elasticsearch`) upserts the canonical
+  document into ES by product id.
 - 50,000 orders / ~164k order_items (avg ~3.3 items/order), spread over two
   years with a realistic status mix (mostly SHIPPED for old orders,
   PENDING/PROCESSING for recent ones). The original 42 hand-crafted orders —

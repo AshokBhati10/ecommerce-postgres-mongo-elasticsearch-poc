@@ -8,7 +8,8 @@ Strategy B — Periodic polling: a background thread wakes every
 POLL_INTERVAL_SECONDS, asks Postgres for orders changed since its last run,
 and bulk-indexes them into Elasticsearch.
 
-scripts/reindex_orders.py rebuilds the whole index from Postgres in one step.
+scripts/reindex_orders.py rebuilds the whole orders index from Postgres in one
+step; scripts/reindex_products.py rebuilds the products index from MongoDB.
 """
 import logging
 import threading
@@ -16,6 +17,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from ..repositories import es as es_repo
+from ..repositories import es_products as es_products_repo
 from ..repositories import postgres as pg_repo
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,30 @@ def reindex_all(pool, es, index: str) -> int:
         es_repo.bulk_index_orders(es, index, batch)
         total += len(batch)
     logger.info("Reindexed %d orders into %s", total, index)
+    return total
+
+
+def reindex_all_products(mdb, es, index: str, batch_size: int = 5000) -> int:
+    """Drop + recreate the products index and bulk-load every MongoDB product.
+
+    Reads MongoDB in batches and uses the Elasticsearch Bulk API (no
+    per-document HTTP requests); refreshes the index once at the end instead
+    of per batch. Never touches the orders index.
+    """
+    es_products_repo.recreate_products_index(es, index)
+    total = 0
+    batch: list[dict] = []
+    for doc in mdb.products.find({}, batch_size=batch_size):
+        batch.append(doc)
+        if len(batch) >= batch_size:
+            es_products_repo.bulk_index_products(es, index, batch, refresh=False)
+            total += len(batch)
+            batch = []
+    if batch:
+        es_products_repo.bulk_index_products(es, index, batch, refresh=False)
+        total += len(batch)
+    es.indices.refresh(index=index)
+    logger.info("Reindexed %d products into %s", total, index)
     return total
 
 

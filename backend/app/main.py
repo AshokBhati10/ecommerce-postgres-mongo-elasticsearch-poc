@@ -9,6 +9,7 @@ from .api import orders, products, search, users
 from .core.database import close_all, es_client, pg_pool
 from .core.settings import settings
 from .repositories import es as es_repo
+from .repositories import es_products as es_products_repo
 from .services import sync as sync_service
 
 logger = logging.getLogger(__name__)
@@ -17,13 +18,17 @@ _stop_event = threading.Event()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Warm up clients and make sure the orders index exists.
+    # Warm up clients and make sure the orders + products indices exist.
     pg_pool()
     es = es_client()
     try:
         es_repo.ensure_index(es, settings.es_index)
     except Exception as exc:
-        logger.warning("Could not ensure ES index on startup: %s", exc)
+        logger.warning("Could not ensure ES orders index on startup: %s", exc)
+    try:
+        es_products_repo.ensure_products_index(es, settings.es_products_index)
+    except Exception as exc:
+        logger.warning("Could not ensure ES products index on startup: %s", exc)
     worker = None
     if settings.sync_strategy == "polling":
         worker = sync_service.start_polling_worker(

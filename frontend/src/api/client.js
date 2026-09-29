@@ -29,9 +29,11 @@ export const api = {
   listUserOrders: (userId, limit = 100) =>
     request(`/api/users/${enc(userId)}/orders?limit=${enc(limit)}`),
 
-  // params: { category?, q?, active?, page?, page_size? } — backend defaults active=true.
+  // params: { category?, q?, active?, page?, page_size?, admin? } — backend defaults active=true.
   // When `page` is given the backend returns a paginated envelope
   // { items, page, page_size, total, total_pages }; otherwise a plain list.
+  // admin=true paginates from MongoDB (source of truth, for Catalog Admin);
+  // otherwise the paginated path reads Elasticsearch (Storefront).
   listProducts: (params = {}) => {
     const q = new URLSearchParams()
     if (params.category) q.set('category', params.category)
@@ -39,6 +41,7 @@ export const api = {
     if (params.active !== undefined) q.set('active', String(params.active))
     if (params.page !== undefined && params.page !== null) q.set('page', String(params.page))
     if (params.page_size !== undefined && params.page_size !== null) q.set('page_size', String(params.page_size))
+    if (params.admin) q.set('admin', 'true')
     const qs = q.toString()
     return request(`/api/products${qs ? `?${qs}` : ''}`)
   },

@@ -94,13 +94,14 @@ def test_products_pagination_pages_differ():
     ids1 = {i["id"] for i in p1["items"]}
     ids2 = {i["id"] for i in p2["items"]}
     assert ids1 and ids2 and not ids1 & ids2
-    # last page is partial-or-full, beyond-last is empty but keeps metadata
-    last = client.get("/api/products",
-                      params={"page": p1["total_pages"], "page_size": 10}).json()
-    assert 0 < len(last["items"]) <= 10
+    # last page inside ES's 10k result window is partial-or-full ...
+    last_ok = client.get("/api/products",
+                         params={"page": 1000, "page_size": 10}).json()
+    assert 0 < len(last_ok["items"]) <= 10
+    # ... pages past the window return empty items but keep accurate metadata
     beyond = client.get("/api/products",
                         params={"page": p1["total_pages"] + 1, "page_size": 10}).json()
-    assert beyond["items"] == []
+    assert beyond["items"] == [] and beyond["total"] == p1["total"]
     assert beyond["total"] == p1["total"]
     assert beyond["total_pages"] == p1["total_pages"]
 

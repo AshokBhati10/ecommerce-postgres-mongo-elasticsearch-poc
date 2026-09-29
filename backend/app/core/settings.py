@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     # Elasticsearch
     elasticsearch_url: str = "http://localhost:9200"
     es_index: str = "orders"
+    es_products_index: str = "products"
     # API
     api_host: str = "0.0.0.0"
     api_port: int = 8000

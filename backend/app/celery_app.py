@@ -31,6 +31,6 @@ def make_celery() -> Celery:
 celery_app = make_celery()
 
 # Register task modules. Placed after `celery_app` exists so
-# app.tasks.order_sync can do `from ..celery_app import celery_app`
-# without a circular import.
-from .tasks import order_sync  # noqa: F401,E402
+# app.tasks.order_sync / app.tasks.product_sync can do
+# `from ..celery_app import celery_app` without a circular import.
+from .tasks import order_sync, product_sync  # noqa: F401,E402
